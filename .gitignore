@@ -1,0 +1,19 @@
+# ---- IDE / editor ---------------------------------------------------------
+.idea/
+.vs/
+*.user
+
+# Docs
+docs/
+
+# Build / Artefacts
+dist/
+
+# ---- Local tooling --------------------------------------------------------
+.wakatime-project
+__pycache__/
+
+# ---- OS cruft -------------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
