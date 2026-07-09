@@ -1,0 +1,176 @@
+; ============================================================================
+; BSYS_BootScript
+; ============================================================================
+; Runs once at boot: loads Config.ini into the session config array (Goo1
+; "*_BSYS") and sanitizes it, seeds session defaults, and resolves the
+; translation file for the user's Windows locale. No requirement checks -
+; Plugins+ enforces the KitInfo.ini Masters minimums itself.
+;
+; A setting's slot index = its position in the aCfg table below, the single
+; source of truth for key/type/min/default. Consumers read slots by number
+; with a "; Section:key" comment at each read site.
+; ============================================================================
+
+Create: BSYS_BootScript
+
+array_var aCfg
+array_var aIter
+array_var aEntry
+int iSlot
+int iType
+float fMin
+float fDef
+float fVal
+int bBad
+int iColon
+string_var sSecKey
+string_var sName
+int iDash
+string_var sLocale
+string_var sLang
+string_var sLangFile
+
+BeginAlt Boot
+  ; --- Config table: entry = Section:Key, type (0 float / 1 int / 2 bool),
+  ; minimum, shipped default. Table order IS the slot index: JIP indexed
+  ; AuxVars are append-only, so slots must be written sequentially from 0.
+  ; The mins are the hard edges the math needs - a 0 divisor, a 1-sided die
+  ; or a negative rate all break the sim.
+  let aCfg := ar_Construct Array
+  ar_Append aCfg (ar_List "Main:bEnabled" 2 0 1)               ; 0
+  ar_Append aCfg (ar_List "Main:bDebug" 2 0 0)                 ; 1
+  ar_Append aCfg (ar_List "Main:bNotifyOnSettle" 2 0 1)        ; 2
+  ar_Append aCfg (ar_List "Balance:fGraceDays" 0 0 1)          ; 3
+  ar_Append aCfg (ar_List "Balance:fBaseAttemptsPerDay" 0 0 2) ; 4
+  ar_Append aCfg (ar_List "Balance:fEscalationPerWeek" 0 0 0.25) ; 5
+  ar_Append aCfg (ar_List "Balance:fCapsSpendPerDay" 0 0 40)   ; 6
+  ar_Append aCfg (ar_List "Balance:fLuckModWeight" 0 0 0.5)    ; 7
+  ar_Append aCfg (ar_List "Balance:iCapsFloor" 1 0 130)        ; 8
+  ar_Append aCfg (ar_List "Balance:iSmartPickWeightPct" 1 0 8) ; 9
+  ar_Append aCfg (ar_List "Balance:iCheapItemValue" 1 0 25)    ; 10
+  ar_Append aCfg (ar_List "Balance:iMaxAttemptsPerSettle" 1 1 500) ; 11
+  ar_Append aCfg (ar_List "Balance:iLotMarginDivisor" 1 1 6)   ; 12
+  ar_Append aCfg (ar_List "Balance:fCheapLotWeight" 0 0 0.75)  ; 13
+  ar_Append aCfg (ar_List "Balance:iLuckRollDie" 1 2 20)       ; 14
+  ar_Append aCfg (ar_List "Fencing:bFenceWeapons" 2 0 1)       ; 15
+  ar_Append aCfg (ar_List "Fencing:bFenceArmor" 2 0 1)         ; 16
+  ar_Append aCfg (ar_List "Fencing:bFencePowerArmor" 2 0 1)    ; 17
+  ar_Append aCfg (ar_List "Fencing:bFenceAid" 2 0 1)           ; 18
+  ar_Append aCfg (ar_List "Fencing:bFenceAmmo" 2 0 1)          ; 19
+  ar_Append aCfg (ar_List "Fencing:bFenceBooks" 2 0 1)         ; 20
+  ar_Append aCfg (ar_List "Fencing:bFenceMisc" 2 0 1)          ; 21
+  ar_Append aCfg (ar_List "Fencing:bFenceWeaponMods" 2 0 1)    ; 22
+  ar_Append aCfg (ar_List "Fencing:bFenceKeys" 2 0 0)          ; 23
+  ar_Append aCfg (ar_List "Fencing:bFenceOther" 2 0 1)         ; 24
+  ar_Append aCfg (ar_List "Fencing:bSpendCaps" 2 0 1)          ; 25
+
+  ; --- Pass 1: load every slot from the INI, in table (= slot) order ---
+  let iSlot := 0
+
+  ForEach aIter <- aCfg
+    let aEntry := *aIter
+    let sSecKey := aEntry[0]
+    let fDef := aEntry[3]
+    Goo1.AuxVarSetFlt "*_BSYS" (GetINIFloat_Cached ($sSecKey) "BennySellsYourStuff/Config.ini" fDef) iSlot
+    let iSlot += 1
+  Loop
+
+  ; [DangerZone] settings: uninstall flag. Its own scalar session var, NOT
+  ; slot 26 of the config array - indexed AuxVars grow append-only, so a
+  ; first write at index 26 on a fresh var lands out of range and silently
+  ; no-ops (and *BSYS without the underscore is a separate var from *_BSYS)
+  Goo1.AuxVarSetFlt "*BSYS" (GetINIFloat_Cached "DangerZone:bUninstall" "BennySellsYourStuff/Config.ini" 0) 0
+
+  CloseFileSO "BennySellsYourStuff/Config.ini" 0
+
+  ; --- Pass 2: sanitize. Anything invalid for its type or range falls back to the shipped default
+  let fVal := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  if fVal != 0 && fVal != 1
+    Goo1.AuxVarSetFlt "*_BSYS" 0 1
+  endif
+
+  let iSlot := 0
+
+  ForEach aIter <- aCfg
+    let aEntry := *aIter
+    let iType := aEntry[1]
+    let fMin := aEntry[2]
+    let fDef := aEntry[3]
+    let fVal := Goo1.AuxVarGetFlt "*_BSYS" iSlot
+    let bBad := 0
+
+    if fVal < fMin
+      let bBad := 1
+    elseif iType >= 1 && fVal != (Floor fVal)
+      let bBad := 1
+    elseif iType == 2 && fVal > 1
+      let bBad := 1
+    endif
+
+    if bBad
+      Goo1.AuxVarSetFlt "*_BSYS" fDef iSlot
+
+      if Goo1.AuxVarGetFlt "*_BSYS" 1
+        let sSecKey := aEntry[0]
+        let iColon := sv_Find ":" sSecKey
+        let sName := sv_SubString sSecKey (iColon + 1) 64
+        Print "BSYS - Config: " + $sName + " = " + $fVal + " is invalid, using the default (" + $fDef + ")"
+      endif
+    endif
+
+    let iSlot += 1
+  Loop
+
+  ; bUninstall: same boolean rule, against its own scalar var
+  let fVal := Goo1.AuxVarGetFlt "*BSYS" 0
+
+  if fVal != 0 && fVal != 1
+    let fDef := 0
+    Goo1.AuxVarSetFlt "*BSYS" fDef 0
+
+    if Goo1.AuxVarGetFlt "*_BSYS" 1
+      Print "BSYS - Config: bUninstall = " + $fVal + " is invalid, using the default (" + $fDef + ")"
+    endif
+  endif
+
+  ; Session state defaults
+  Goo1.AuxVarSetFlt "*_BSYS_bActive" 0
+  Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
+  Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+
+  ; --- Translations ---
+  ; Resolve the correct translation file once per launch,
+  ; matched to the user's Windows locale
+  let sLocale := ""
+  let sLocale := GetUserWindowsLanguage
+  let sLangFile := ""
+
+  if (sv_Length sLocale) > 0
+    let sLangFile := "Data\Translations\" + $sLocale + ".json"
+
+    if (JSONIsFileValid ($sLangFile)) != 1
+      let sLangFile := ""
+      let iDash := sv_Find "-" sLocale
+
+      if iDash > 0
+        let sLang := sv_SubString sLocale 0 iDash
+        let sLangFile := "Data\Translations\" + $sLang + ".json"
+
+        if (JSONIsFileValid ($sLangFile)) != 1
+          let sLangFile := ""
+        endif
+      endif
+    endif
+  endif
+
+  if (sv_Length sLangFile) == 0
+    let sLangFile := "Data\Translations\en.json"
+
+    if (JSONIsFileValid ($sLangFile)) != 1
+      let sLangFile := "" ; no usable translations at all - keys display raw
+    endif
+  endif
+
+  Goo1.AuxVarSetStr "*_BSYS_sLangFile" ($sLangFile)
+End
