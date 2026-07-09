@@ -1,0 +1,145 @@
+name: PR Build Artifacts
+
+# When a pull request touches the mod source (src/**), build the same two
+# mod-manager-ready zips the release workflow cuts - Main and Config - but stamp
+# the version with the PR's short commit hash instead of '-beta'. The zips are
+# uploaded as workflow artifacts and surfaced in a single, self-updating PR
+# comment so reviewers can grab a testable build straight from the PR.
+#
+# Artifacts (both rooted so the zip contents drop straight into Data\):
+#   PROJECT_NAME-Main-vX.Y.Z-<sha>.zip   -> everything under src/, KitInfo
+#                                           version stamped to match
+#   PROJECT_NAME-Config-vX.Y.Z-<sha>.zip -> just src/Config, for a
+#                                           settings-only update
+#
+# Note: downloading workflow artifacts requires being signed in to GitHub with
+# read access to the repo, and they expire after the retention window below.
+
+on:
+  pull_request:
+    paths: [ 'src/**' ]
+
+# Only the PR author's changes are read; write access is needed solely to post
+# and update the PR build comment.
+permissions:
+  contents: read
+  pull-requests: write
+
+# One in-flight build per PR - a new push supersedes the previous PR build comment so the
+# comment always reflects the latest commit.
+concurrency:
+  group: pr-artifacts-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_NAME: ${{ github.event.repository.name }}
+  # How long the PR build zips stay downloadable from the run.
+  ARTIFACT_RETENTION_DAYS: ${{ vars.ARTIFACT_RETENTION_DAYS || 0 }}
+
+jobs:
+  build-pr-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v7
+        with:
+          # Build the PR's actual head commit, not the synthetic merge commit,
+          # so the stamped hash matches what the author pushed.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      # PR version = the KitInfo base version + the PR head short hash,
+      # e.g. 1.0.0-a1b2c3d. build.py stamps KitInfo.ini and names the zips.
+      - name: Build PR artefact zips
+        id: build
+        shell: bash
+        run: |
+          name="$PROJECT_NAME"
+          short_sha="$(git rev-parse --short=7 '${{ github.event.pull_request.head.sha }}')"
+
+          base="$(sed -n 's/^Version:[[:space:]]*//p' "src/Devkit/Mods/$name/KitInfo.ini" | head -n1)"
+          if [ -z "$base" ]; then echo "::error::No 'Version:' line in KitInfo.ini"; exit 1; fi
+          version="${base}-${short_sha}"
+
+          echo "Building $name v$version"
+          python tools/build.py --version "$version"
+
+          {
+            echo "version=$version"
+            echo "short_sha=$short_sha"
+            echo "main=$name-Main-v$version.zip"
+            echo "config=$name-Config-v$version.zip"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload Main artifact
+        id: up_main
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.main }}
+          path: dist/${{ steps.build.outputs.main }}
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+          archive: false
+
+      - name: Upload Config artifact
+        id: up_config
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.config }}
+          path: dist/${{ steps.build.outputs.config }}
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+          archive: false
+
+      # Post the PR builds as a single sticky comment (hidden marker), updating it
+      # in place on every push so the PR never accumulates duplicate comments.
+      - name: Post PR build comment
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const marker = '<!-- pr-build-artifacts -->';
+            const version   = ${{ toJSON(steps.build.outputs.version) }};
+            const shortSha   = ${{ toJSON(steps.build.outputs.short_sha) }};
+            const mainName   = ${{ toJSON(steps.build.outputs.main) }};
+            const configName = ${{ toJSON(steps.build.outputs.config) }};
+            const mainUrl    = ${{ toJSON(steps.up_main.outputs.artifact-url) }};
+            const configUrl  = ${{ toJSON(steps.up_config.outputs.artifact-url) }};
+            const retention  = ${{ toJSON(env.ARTIFACT_RETENTION_DAYS) }};
+
+            const headSha = context.payload.pull_request.head.sha;
+            const commitUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/commit/${headSha}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const body = [
+              marker,
+              `## 📦 PR build \`v${version}\``,
+              '',
+              `Test builds for commit [\`${shortSha}\`](${commitUrl}), stamped with the commit hash in place of \`-beta\`.`,
+              '',
+              '| Artifact | Contents | Download |',
+              '| --- | --- | --- |',
+              `| **Main** | Full \`src/\` tree, \`KitInfo.ini\` stamped to \`${version}\` | [\`${mainName}\`](${mainUrl}) |`,
+              `| **Config** | Just \`src/Config\`, for a settings-only update | [\`${configName}\`](${configUrl}) |`,
+              '',
+              'Both zips are rooted, so their contents drop straight into `Data\\`.',
+              '',
+              `<sub>⚠️ Downloading requires being signed in to GitHub. Artifacts expire ${retention} days after the [run](${runUrl}). Updated automatically on every push to this PR.</sub>`,
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

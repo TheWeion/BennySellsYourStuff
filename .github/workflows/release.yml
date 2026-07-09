@@ -1,0 +1,210 @@
+name: Release
+
+# Publishes a GitHub Release with two mod-manager-ready zips. A release is
+# cut three ways:
+#   * Push to main      -> the next version is derived from Conventional Commits
+#                          (fix->patch, feat->minor, feat!/BREAKING->major;
+#                          anything else publishes nothing). Needs a prior
+#                          version tag as the baseline to analyse against.
+#   * Push to develop   -> same version computation as main, but the version is
+#                          suffixed '-beta' (e.g. v1.0.0-beta / 1.0.0-beta) and
+#                          published as a prerelease. Lets debug artifacts be
+#                          tested alongside - never overwriting - the stable
+#                          main-branch builds.
+#   * Push a vX.Y.Z tag -> that exact version is released. Use this to seed
+#                          the first release or force a specific version.
+#
+# Artifacts (both rooted so the zip contents drop straight into Data\):
+#   PROJECT_NAME-Main-vX.Y.Z.zip   -> everything under src/, with the
+#                                     KitInfo.ini version stamped to match
+#   PROJECT_NAME-Config-vX.Y.Z.zip -> just src/Config, for updating
+#                                     settings without touching scripts
+#
+# Nexus Mods (main-branch pushes only): both zips are also pushed as new
+# versions of the existing files via Nexus-Mods/upload-action
+# (file_id 7634777 = Main, 7634861 = Config). Main always uploads; Config only
+# when src/Config actually changed since the previous release tag, so followers
+# aren't pinged for a no-op update. Develop betas and manual tag pushes never
+# touch the public mod page. Requires the NEXUSMODS_API_KEY repo secret.
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:   # allow manual runs from the Actions tab
+
+# Needed to create tags and publish releases with the default GITHUB_TOKEN.
+permissions:
+  contents: write
+  packages: write
+  issues: write
+  pull-requests: write
+
+# Give each ref its own lane so a develop beta never blocks a main release -
+# main effectively takes priority by never queueing behind develop. Stable
+# builds (main / tags) never cancel, keeping version numbers monotonic; a fresh
+# develop push supersedes an in-flight older beta.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name == 'develop' }}
+
+env:
+  PROJECT_NAME: BennySellsYourStuff
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Branch/manual runs: compute the next version from the commit history.
+      # dry_run = compute only; the tag is created at the publish step so a
+      # failed run never leaves an orphan tag. Skipped for tag pushes.
+      - name: Compute version from commits
+        id: semver
+        if: github.ref_type == 'branch'
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
+          default_bump: false
+
+      # Resolve the tag/version from whichever source applies. An empty version
+      # means "nothing to release" and gates every step below.
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            $version = $tag -replace '^v', ''
+          } else {
+            $tag = '${{ steps.semver.outputs.new_tag }}'
+            $version = '${{ steps.semver.outputs.new_version }}'
+            # develop cuts prerelease "beta" builds off the same computed
+            # version. Guard on $version so a "nothing to release" run stays
+            # empty (a bare '-beta' would look releasable and gate open).
+            if ($version -and $env:GITHUB_REF_NAME -eq 'develop') {
+              $version = "$version-beta"
+              $tag     = "v$version"
+            }
+          }
+          # Any version carrying a '-<suffix>' is a prerelease: keeps develop
+          # betas (and any manually pushed prerelease tag) out of "Latest".
+          $prerelease = if ($version -match '-') { 'true' } else { 'false' }
+          "tag=$tag"               | Out-File $env:GITHUB_OUTPUT -Append
+          "version=$version"       | Out-File $env:GITHUB_OUTPUT -Append
+          "prerelease=$prerelease" | Out-File $env:GITHUB_OUTPUT -Append
+          if ($version) { Write-Output "Releasing $tag (version $version, prerelease=$prerelease)" }
+          else { Write-Output "No releasable commits since the last tag - skipping." }
+
+      # Stamp the release version into the packaged KitInfo.ini. Only the
+      # staged copy is touched - nothing is committed back to the repo.
+      - name: Package
+        if: steps.ver.outputs.version != ''
+        id: pkg
+        shell: pwsh
+        run: |
+          $ver  = '${{ steps.ver.outputs.version }}'
+          $name = $env:PROJECT_NAME
+
+          $mainStage   = "$name-Main-v$ver"
+          $configStage = "$name-Config-v$ver"
+
+          Copy-Item src $mainStage -Recurse
+          New-Item -ItemType Directory -Force $configStage | Out-Null
+          Copy-Item src/Config "$configStage/Config" -Recurse
+
+          $kitInfo = "$mainStage/Devkit/Mods/$name/KitInfo.ini"
+          if (-not (Test-Path $kitInfo)) { throw "KitInfo.ini not found at $kitInfo" }
+          (Get-Content $kitInfo) -replace '^Version:.*', "Version: $ver" | Set-Content $kitInfo -Encoding ASCII
+          Write-Output "Stamped KitInfo.ini -> Version: $ver"
+
+          Compress-Archive -Path "$mainStage/*"   -DestinationPath "$mainStage.zip"   -Force
+          Compress-Archive -Path "$configStage/*" -DestinationPath "$configStage.zip" -Force
+          "main=$mainStage.zip"     | Out-File $env:GITHUB_OUTPUT -Append
+          "config=$configStage.zip" | Out-File $env:GITHUB_OUTPUT -Append
+
+      # main only: did the packaged Config actually change since the last
+      # release? Diff src/Config between the previous version tag and HEAD so an
+      # unchanged Config is neither attached to the GitHub release nor pushed to
+      # Nexus - the latter would ping Config followers for a no-op update. No
+      # prior tag = first release = treat as changed. (fetch-depth: 0 above makes
+      # the previous tag available to diff against.)
+      - name: Detect Config change
+        id: cfg
+        if: steps.ver.outputs.version != '' && github.ref_name == 'main'
+        shell: pwsh
+        run: |
+          $prev = '${{ steps.semver.outputs.previous_tag }}'
+          if (-not $prev) {
+            $changed = 'true'
+            Write-Output "No previous tag - treating Config as changed (first release)."
+          } else {
+            $diff = git diff --name-only "$prev" HEAD -- src/Config
+            $changed = if ($diff) { 'true' } else { 'false' }
+            Write-Output "Config changed since ${prev}: $changed"
+            if ($diff) { $diff | ForEach-Object { Write-Output "  $_" } }
+          }
+          "changed=$changed" | Out-File $env:GITHUB_OUTPUT -Append
+
+      # Build categorized release notes from the Conventional Commits in range.
+      # Tag pushes describe the just-pushed tag (--latest); branch/manual runs
+      # describe the commits since the last tag, labelled with the new version.
+      - name: Generate release notes
+        if: steps.ver.outputs.version != ''
+        id: notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: ${{ github.ref_type == 'tag' && '--latest' || format('--unreleased --tag {0}', steps.ver.outputs.tag) }}
+
+      - name: Publish release
+        if: steps.ver.outputs.version != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ env.PROJECT_NAME }} v${{ steps.ver.outputs.version }}
+          body: ${{ steps.notes.outputs.content }}
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
+          # Config zip is dropped from the release only when the Detect step ran
+          # (main) and found no change. On develop/tags cfg.changed is '' so the
+          # config is always attached, unchanged from prior behaviour.
+          files: |
+            ${{ steps.pkg.outputs.main }}
+            ${{ steps.cfg.outputs.changed != 'false' && steps.pkg.outputs.config || '' }}
+
+      # Publish to Nexus Mods after the GitHub release (the source of truth) is
+      # up. Each upload adds a NEW version to the existing file via the stable
+      # file_id, so the same IDs are reused every release. main-branch pushes
+      # only. A Nexus API failure fails the job (visible red X) without touching
+      # the already-published GitHub release.
+      - name: Upload Main to Nexus
+        if: steps.ver.outputs.version != '' && github.ref_name == 'main'
+        uses: Nexus-Mods/upload-action@main
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: 7634777
+          filename: ${{ steps.pkg.outputs.main }}
+          version: ${{ steps.ver.outputs.version }}
+          category: main
+          description: ${{ steps.notes.outputs.content }}
+          archive_existing_version: true
+
+      # Config is versioned up only when its contents actually changed, so users
+      # following the Config file aren't notified for a no-op update.
+      - name: Upload Config to Nexus
+        if: steps.ver.outputs.version != '' && github.ref_name == 'main' && steps.cfg.outputs.changed == 'true'
+        uses: Nexus-Mods/upload-action@main
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: 7634861
+          filename: ${{ steps.pkg.outputs.config }}
+          version: ${{ steps.ver.outputs.version }}
+          category: optional
+          description: ${{ steps.notes.outputs.content }}
+          archive_existing_version: true
+
