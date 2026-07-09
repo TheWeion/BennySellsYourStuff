@@ -1,0 +1,98 @@
+; ============================================================================
+; BSYS_InitLoadUDF
+; ============================================================================
+; Per-load init, called from GameScript on every load and new game.
+;
+; Re-registering identical handlers each load is intentional - they're
+; idempotent.
+; ============================================================================
+
+Create: BSYS_InitLoadUDF
+
+ref rSafe
+ref rSuite
+int bStolenGear
+int bDebug
+
+Begin Function {}
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  Goo1.AuxVarSetFlt "*_BSYS_bActive" 0
+  Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
+  ; Session vars outlive save loads - clear the freeze timestamp so a
+  ; previous save's deferral can't leak into this one
+  Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+
+  ; --- Gate 0: spree already over ---
+  if Player.AuxVarGetFlt "_BSYS_iEnded"
+    Call BSYS_CleanupUDF 0
+
+    if bDebug
+      Print "BSYS - Spree already over on this save, staying inert"
+    endif
+    return
+  endif
+
+  ; --- Gate 1: BHYSYS installed (its safe ref resolves) ---
+  let rSafe := EditorIDToFormID "SSSStolenWeaponsRef"
+
+  if rSafe == 0
+    if bDebug
+      Print "BSYS - BHYSYS not detected (SSSStolenWeaponsRef did not resolve), staying inert"
+    endif
+    return
+  endif
+
+  ; --- Gate 2: bStolenGear=1, checked only until the humbling ---
+  ; Once the clock has started the gear's already gone; the INI no longer
+  ; matters and only bEnabled disables the mod.
+  if Player.AuxVarGetFlt "_BSYS_fStartDay" == 0
+    let bStolenGear := GetINIFloat "Main:bStolenGear" "Humbling.ini"
+
+    if bStolenGear != 1
+      if bDebug
+        Print "BSYS - bStolenGear is not 1 in Humbling.ini and no humbling tracked yet, staying inert"
+      endif
+      return
+    endif
+  endif
+
+  ; --- Cache cross-mod and vanilla forms for this session ---
+  Goo1.AuxVarSetRef "*_BSYS_rSafe" rSafe
+  Goo1.AuxVarSetRef "*_BSYS_rNote" (EditorIDToFormID "sssBennyGearNote")
+  Goo1.AuxVarSetRef "*_BSYS_rKey" (EditorIDToFormID "BennySafeKey")
+
+  ; Suite cell's Editor ID starts with a digit, so resolve it by string
+  let rSuite := EditorIDToFormID "2ETopsPresidentialSuite"
+  Goo1.AuxVarSetRef "*_BSYS_rSuite" rSuite
+
+  Goo1.AuxVarSetFlt "*_BSYS_bActive" 1
+
+  ; --- Event handlers ---
+  SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
+  SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
+  SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
+
+  SetOnQuestStageEventHandler BSYS_OnQuestStageUDE 1 VMQTops 20
+
+  SetEventHandler "OnCellEnter" BSYS_OnCellEnterUDE "first"::rSuite
+
+  ; Sleep/Wait close (1012): settle on wake, so sleeping next to the safe
+  ; can't race the ~5s heartbeat
+  SetOnMenuCloseEventHandler BSYS_OnMenuCloseUDE 1 1012
+
+  ; Container close (1008): EndCheckUDF defers while the safe's own view is
+  ; open, so settle the deferred window the instant it closes instead of up
+  ; to ~5s later - closes the reopen race under Real Time Menus
+  SetOnMenuCloseEventHandler BSYS_OnMenuCloseUDE 1 1008
+
+  ; Safe activation: settle synchronously before the menu opens, so a
+  ; console clock jump landing in the poll gap while standing at the safe
+  ; is already settled when the lid comes up
+  SetEventHandler "OnActivate" BSYS_OnActivateUDE "first"::rSafe "second"::player
+
+  Print "BSYS - Active. Humbled state and end conditions will be checked momentarily..."
+
+  ; Catch up on time that passed before this load
+  Call BSYS_EndCheckUDF
+End

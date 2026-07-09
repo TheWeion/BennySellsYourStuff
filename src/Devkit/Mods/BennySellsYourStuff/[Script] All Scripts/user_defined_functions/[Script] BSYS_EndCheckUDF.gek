@@ -1,0 +1,170 @@
+; ============================================================================
+; BSYS_EndCheckUDF
+; ============================================================================
+; The central tick, called from both heartbeats, every event handler, and
+; once per save load. (1) Detect the humbling: the first non-caps item in
+; the safe starts the clock. (2) Check end conditions: any Benny ref dead,
+; VMQTops stage 20, VStoryEventBennyFled (Black Widow route), or Benny
+; physically in the suite (backstop). (3) Settle via SimUDF (incremental,
+; safe to call any time). (4) On an end: freeze (_BSYS_iEnded), notify,
+; print the debug ledger, erase all other BSYS AuxVars (CleanupUDF).
+;
+; Clock: JIP GetGameDaysPassed (calendar globals, immune to the vanilla
+; GameDaysPassed freeze bug). It already INCLUDES GameHour/24 - adding it
+; again would double-count and jump backward at midnight.
+; ============================================================================
+
+Create: BSYS_EndCheckUDF
+
+ref rSafe
+ref rItem
+array_var aItems
+array_var aIter
+float fNow
+float fDays
+string_var sDur
+string_var sMsg
+int bEnded
+int bDebug
+int bHumbled
+int iNum
+int iIdx
+int iSold
+int iSpent
+int iRowQty
+int iRowVal
+int iValTotal
+
+Begin Function {}
+  if Goo1.AuxVarGetFlt "*_BSYS_bActive" != 1
+    return
+  endif
+  if Player.AuxVarGetFlt "_BSYS_iEnded"
+    return
+  endif
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+  let rSafe := Goo1.AuxVarGetRef "*_BSYS_rSafe"
+  let fNow := GetGameDaysPassed
+
+  ; --- 1. Humbling detection ---
+  ; Start on a real humbling signature: any non-caps item (Benny's note
+  ; included - GetItemCount doesn't work on Notes, so inspect base forms). A
+  ; caps-ONLY safe is BHYSYS's bStolenGear=0 consolation branch (1000 caps,
+  ; gear returned) and must never start the clock. No filters on the
+  ; snapshot: quest items count as a humbling signature too.
+  if Player.AuxVarGetFlt "_BSYS_fStartDay" == 0
+    let bHumbled := 0
+    let aItems := rSafe.GetAllItems
+
+    ForEach aIter <- aItems
+      let rItem := *aIter
+
+      if rItem != Caps001
+        let bHumbled := 1
+        break
+      endif
+    Loop
+
+    if bHumbled
+      Player.AuxVarSetFlt "_BSYS_fStartDay" fNow
+      Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
+
+      if bDebug
+        Print "BSYS - Humbling detected, the clock is running!"
+      endif
+    endif
+    return
+  endif
+
+  ; --- 2. End conditions (checked BEFORE the safe-in-view deferral, so an
+  ;        end arriving mid-view still gets timestamped) ---
+  let bEnded := 0
+
+  if BennyREF.GetDead || VFortBennyRef.GetDead || VFortBennyCrucifiedRef.GetDead
+    let bEnded := 1
+  elseif GetStage VMQTops >= 20
+    let bEnded := 1
+  elseif VStoryEventBennyFled == 1
+    let bEnded := 1
+  elseif (BennyREF.GetParentCell) == (Goo1.AuxVarGetRef "*_BSYS_rSuite")
+    let bEnded := 1
+  endif
+
+  ; --- 3. Safe-in-view deferral ---
+  ; Never mutate the safe while its OWN view is open (under RTM, handlers
+  ; like OnDeath can fire mid-menu). Any other container is fine - the safe
+  ; is elsewhere, so settling is invisible. Deferral is lossless: the sim
+  ; settles calendar windows and the next tick (or OnMenuClose) re-runs
+  ; this. If an end arrived during the view, record WHEN - the deferred
+  ; settle clamps to it, so a dead Benny can't sell while the player stares
+  ; into the safe.
+  if MenuMode 1008
+    if (GetMenuTargetRef 1008) == rSafe
+      if bEnded && (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") == 0
+        Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" fNow
+      endif
+      return
+    endif
+  endif
+
+  ; --- 4. Settle up to now ---
+  Call BSYS_SimUDF
+
+  ; --- 5. Freeze on an end condition ---
+  if bEnded
+    Player.AuxVarSetFlt "_BSYS_iEnded" 1
+
+    ; If the end arrived mid-view, the deferral timestamp is the true end
+    ; moment - clamp the local clock so reported durations don't count time
+    ; spent staring into the safe, then consume the timestamp
+    if (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") > 0 && (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") < fNow
+      let fNow := Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay"
+    endif
+    Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+
+    let iSold := Player.AuxVarGetFlt "_BSYS_iItemsSold"
+    let iSpent := Player.AuxVarGetFlt "_BSYS_iCapsSpent"
+
+    if iSold > 0 || iSpent > 0
+      if Goo1.AuxVarGetFlt "*_BSYS" 2 ; Main:bNotifyOnSettle
+        let sMsg := Call BSYS_TranslateUDF "BSYS_bennyOnDeathNotification"
+        MessageExAlt 5 ($sMsg)
+      endif
+    endif
+
+    ; --- Debug: Benny's fencing ledger ---
+    if bDebug
+      let fDays := fNow - (Player.AuxVarGetFlt "_BSYS_fStartDay")
+      let iValTotal := 0
+
+      Print "BSYS |=================== BENNY'S FENCING LEDGER ==================="
+
+      let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+      let iIdx := 0
+
+      if iNum == 0
+        Print "BSYS |  (no items sold)"
+      endif
+
+      while iIdx < iNum
+        let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+        let iRowQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+        let iRowVal := Player.AuxVarGetFlt "_BSYS_LedgerVal" iIdx
+        let iValTotal += iRowVal
+        Print "BSYS |  " + $iRowQty + "x " + (LNGetName rItem) + " - " + $iRowVal + " caps base value"
+        let iIdx += 1
+      loop
+
+      Print "BSYS |--------------------------------------------------------------"
+      Print "BSYS |  Items sold: " + $iSold + " (" + $iValTotal + " caps base value)"
+      Print "BSYS |  Caps spent from the safe: " + $iSpent
+      let sDur := Call BSYS_FormatDaysUDF fDays
+      Print "BSYS |  Time on the clock: " + $sDur
+      Print "BSYS |=============================================================="
+    endif
+
+    ; Drop every BSYS AuxVar except the iEnded sentinel
+    Call BSYS_CleanupUDF 0
+  endif
+End
