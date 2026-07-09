@@ -1,0 +1,33 @@
+; ============================================================================
+; BSYS_TranslateUDF
+; ============================================================================
+; Returns the localized string for a translation key, e.g.
+;   let sMsg := Call BSYS_TranslateUDF "BSYS_bennyOnDeathNotification"
+;
+; The translation file is resolved once per launch in the Boot Script
+; and cached in the session.
+; ============================================================================
+
+Create: BSYS_TranslateUDF
+
+string_var sKey
+string_var sFile
+string_var sOut
+array_var aVal
+
+Begin Function { sKey }
+  ; Fall back to echoing the key
+  let sOut := $sKey
+
+  let sFile := Goo1.AuxVarGetStr "*_BSYS_sLangFile"
+
+  if (sv_Length sFile) > 0
+    let aVal := JSONGetValue ($sFile) ($sKey) 0
+
+    if eval (ar_Size aVal) > 1 && aVal[0] == 3
+      let sOut := aVal[1]
+    endif
+  endif
+
+  SetFunctionValue $sOut
+End

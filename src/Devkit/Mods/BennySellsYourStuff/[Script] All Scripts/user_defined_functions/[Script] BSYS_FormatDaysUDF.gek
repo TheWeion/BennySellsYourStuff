@@ -1,0 +1,37 @@
+; ============================================================================
+; BSYS_FormatDaysUDF
+; ============================================================================
+; Fractional game days -> "Xd Yh Zm Ws" (via SetFunctionValue), e.g.
+; 1.51284 -> "1d 12h 18m 29s". Seconds rounded to nearest. Used by the
+; debug lines in SimUDF and EndCheckUDF.
+; ============================================================================
+
+Create: BSYS_FormatDaysUDF
+
+float fDays
+int iTotalSecs
+int iD
+int iH
+int iM
+int iS
+string_var sOut
+
+Begin Function { fDays }
+  if fDays < 0
+    let fDays := 0
+  endif
+
+  let iTotalSecs := Floor ((fDays * 86400) + 0.5)
+
+  let iD := Floor (iTotalSecs / 86400)
+  let iTotalSecs := iTotalSecs - (iD * 86400)
+
+  let iH := Floor (iTotalSecs / 3600)
+  let iTotalSecs := iTotalSecs - (iH * 3600)
+
+  let iM := Floor (iTotalSecs / 60)
+  let iS := iTotalSecs - (iM * 60)
+
+  let sOut := $iD + "d " + $iH + "h " + $iM + "m " + $iS + "s"
+  SetFunctionValue $sOut
+End
