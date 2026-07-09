@@ -1,0 +1,43 @@
+; ============================================================================
+; BSYS_GameScript
+; ============================================================================
+; The GameMode heartbeat: re-initializes on every load (InitLoadUDF - or
+; UninstallUDF when DangerZone:bUninstall=1), then ticks EndCheckUDF every
+; ~5 real seconds. While disabled (bEnabled=0) it pins the clock forward
+; instead (PauseUDF), so switched-off time is a true pause, not a backlog.
+; ============================================================================
+
+Create: BSYS_GameScript
+
+int bEnabled
+
+BeginAlt GameLoop
+  let bEnabled := Goo1.AuxVarGetFlt "*_BSYS" 0 ; Main:bEnabled
+
+  if GetGameLoaded
+    if Goo1.AuxVarGetFlt "*BSYS" 0 ; DangerZone:bUninstall
+      Call BSYS_UninstallUDF
+      return
+    endif
+
+    if bEnabled
+      Call BSYS_InitLoadUDF
+    endif
+  endif
+
+  if GetActiveMenuMode == 0
+    Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" (Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" + (GetSecondsPassed / GetGlobalTimeMultiplier))
+
+    if Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" >= 5
+      Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
+
+      if bEnabled
+        if Goo1.AuxVarGetFlt "*_BSYS_bActive" == 1 && Player.AuxVarGetFlt "_BSYS_iEnded" == 0
+          Call BSYS_EndCheckUDF
+        endif
+      else
+        Call BSYS_PauseUDF
+      endif
+    endif
+  endif
+End

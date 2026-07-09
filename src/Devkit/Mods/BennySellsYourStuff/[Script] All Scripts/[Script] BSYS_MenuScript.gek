@@ -1,0 +1,46 @@
+; ============================================================================
+; BSYS_MenuScript
+; ============================================================================
+; The MenuMode heartbeat, twin of the GameMode one.
+;
+; Enabled: ticks only while the open menu leaves the game clock running -
+; JG 5.20's IsMenuPaused, which RTM hooks with its own live-menu resolution
+; (per-menu config, quantity-prompt inheritance, service mode, console).
+; Without RTM the stub reports every menu paused -> inert. Skipping paused
+; menus is lossless: the sim settles calendar windows, Sleep/Wait settles
+; on wake (OnMenuClose 1012), and EndCheckUDF defers while the safe's own
+; view is open.
+;
+; Disabled: pins the true-pause clock (PauseUDF) in EVERY menu, not behind
+; the gate - Sleep/Wait advances the clock while reporting paused, and with
+; the mod off no handlers exist to pin at wake. Pinning a frozen clock is a
+; no-op, so the unconditional pin costs nothing elsewhere.
+; ============================================================================
+
+Create: BSYS_MenuScript
+
+int bEnabled
+
+BeginAlt MenuLoop
+  let bEnabled := Goo1.AuxVarGetFlt "*_BSYS" 0 ; Main:bEnabled
+
+  if bEnabled
+    if (IsMenuPaused 0) == 0
+      if Goo1.AuxVarGetFlt "*_BSYS_bActive" == 1 && Player.AuxVarGetFlt "_BSYS_iEnded" == 0
+        Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" (Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" + (GetSecondsPassed / GetGlobalTimeMultiplier))
+
+        if Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" >= 5
+          Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
+          Call BSYS_EndCheckUDF
+        endif
+      endif
+    endif
+  else
+    Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" (Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" + (GetSecondsPassed / GetGlobalTimeMultiplier))
+
+    if Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" >= 5
+      Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
+      Call BSYS_PauseUDF
+    endif
+  endif
+End
