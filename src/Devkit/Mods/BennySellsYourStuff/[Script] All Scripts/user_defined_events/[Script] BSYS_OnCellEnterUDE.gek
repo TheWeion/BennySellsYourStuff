@@ -1,0 +1,13 @@
+; ============================================================================
+; BSYS_OnCellEnterUDE
+; ============================================================================
+; Fires on entry and settles, so the safe is final before the player can reach it.
+; ============================================================================
+
+Create: BSYS_OnCellEnterUDE
+
+ref rCell
+
+Begin Function { rCell }
+  Call BSYS_EndCheckUDF
+End

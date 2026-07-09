@@ -1,0 +1,15 @@
+; ============================================================================
+; BSYS_OnDeathUDE
+; ============================================================================
+; xNVSE OnDeath, registered once per Benny ref in InitLoadUDF. Any Benny
+; death ends the spree, so just defer to EndCheckUDF.
+; ============================================================================
+
+Create: BSYS_OnDeathUDE
+
+ref rKilled
+ref rKiller
+
+Begin Function { rKilled, rKiller }
+  Call BSYS_EndCheckUDF
+End

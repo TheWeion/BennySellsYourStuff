@@ -1,0 +1,15 @@
+; ============================================================================
+; BSYS_OnQuestStageUDE
+; ============================================================================
+; JIP quest-stage handler for Ring-a-Ding-Ding! (VMQTops) stage 20 - Benny
+; hands over the suite key. End of his fencing career; defer to EndCheckUDF.
+; ============================================================================
+
+Create: BSYS_OnQuestStageUDE
+
+ref rQuest
+int iStage
+
+Begin Function { rQuest, iStage }
+  Call BSYS_EndCheckUDF
+End

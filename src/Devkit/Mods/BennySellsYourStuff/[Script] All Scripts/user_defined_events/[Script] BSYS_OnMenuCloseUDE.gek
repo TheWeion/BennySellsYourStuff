@@ -1,0 +1,16 @@
+; ============================================================================
+; BSYS_OnMenuCloseUDE
+; ============================================================================
+; JIP menu-close handler for Sleep/Wait (1012) and ContainerMenu (1008):
+; settles on close instead of the next ~5s tick, so waking next to the
+; safe is already current, and the safe's deferred window (EndCheckUDF
+; defers while its view is open) settles the instant it closes.
+; ============================================================================
+
+Create: BSYS_OnMenuCloseUDE
+
+int iMenuId
+
+Begin Function { iMenuId }
+  Call BSYS_EndCheckUDF
+End

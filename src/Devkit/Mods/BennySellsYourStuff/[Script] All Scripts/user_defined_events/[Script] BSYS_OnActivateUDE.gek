@@ -1,0 +1,16 @@
+; ============================================================================
+; BSYS_OnActivateUDE
+; ============================================================================
+; xNVSE OnActivate, filtered to the safe (first) and player (second). Fires
+; when the player activates the safe, before its menu opens, and settles
+; synchronously.
+; ============================================================================
+
+Create: BSYS_OnActivateUDE
+
+ref rActivated
+ref rActionRef
+
+Begin Function { rActivated, rActionRef }
+  Call BSYS_EndCheckUDF
+End
