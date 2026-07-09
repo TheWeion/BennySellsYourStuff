@@ -1,0 +1,43 @@
+# git-cliff configuration - turns Conventional Commits into categorized release
+# notes (Features, Bug Fixes, Documentation, ...). See https://git-cliff.org
+[changelog]
+header = ""
+body = """
+{% if version %}\
+    ## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}\
+{% if commit.breaking %}[**breaking**] {% endif %}\
+{{ commit.message | split(pat="\n") | first | upper_first }} ({{ commit.id | truncate(length=7, end="") }})\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# Order groups via hidden HTML-comment prefixes; the template strips the tags.
+commit_parsers = [
+    { message = "^feat", group = "<!-- 0 -->Features" },
+    { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+    { message = "^perf", group = "<!-- 2 -->Performance" },
+    { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+    { message = "^docs", group = "<!-- 4 -->Documentation" },
+    { message = "^build", group = "<!-- 5 -->Build System" },
+    { message = "^ci", group = "<!-- 6 -->CI/CD" },
+    { message = "^test", group = "<!-- 7 -->Tests" },
+    { message = "^style", group = "<!-- 8 -->Styling" },
+    { message = "^chore", group = "<!-- 9 -->Miscellaneous" },
+    { message = ".*", group = "<!-- 10 -->Other" },
+]
+protect_breaking_commits = true
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"

@@ -1,0 +1,26 @@
+# Pre-commit hooks. Install once with:  pre-commit install
+# (installs both the pre-commit and commit-msg stages thanks to the line below).
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # ---- General hygiene ----------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml          # validates the workflow files
+      - id: check-json          # validates the Translations JSONs
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ---- Conventional Commits (drives the semver release workflow) ----------
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: []   # default types: feat, fix, chore, docs, style, refactor, perf, test, build, ci, revert
