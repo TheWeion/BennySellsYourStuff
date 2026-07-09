@@ -8,17 +8,18 @@ name: Release
 #                          version tag as the baseline to analyse against.
 #   * Push to develop   -> same version computation as main, but the version is
 #                          suffixed '-beta' (e.g. v1.0.0-beta / 1.0.0-beta) and
-#                          published as a prerelease. Lets debug artifacts be
-#                          tested alongside - never overwriting - the stable
-#                          main-branch builds.
+#                          published as a prerelease.
 #   * Push a vX.Y.Z tag -> that exact version is released. Use this to seed
 #                          the first release or force a specific version.
 #
 # Artifacts (both rooted so the zip contents drop straight into Data\):
-#   PROJECT_NAME-Main-vX.Y.Z.zip   -> everything under src/, with the
-#                                     KitInfo.ini version stamped to match
+#   PROJECT_NAME-Main-vX.Y.Z.zip   -> everything under src/
 #   PROJECT_NAME-Config-vX.Y.Z.zip -> just src/Config, for updating
 #                                     settings without touching scripts
+#
+# KitInfo.ini version is maintained independently in-repo and is NOT
+# overwritten by the release tag - the packaged KitInfo keeps whatever
+# Version value the developer committed.
 #
 # Nexus Mods (main-branch pushes only): both zips are also pushed as new
 # versions of the existing files via Nexus-Mods/upload-action
@@ -71,6 +72,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           dry_run: true
           default_bump: false
+          # Include develop so the action computes a clean semver without
+          # injecting branch-name prerelease identifiers (e.g. "-develop.0").
+          # The Resolve step below appends "-beta" for develop pushes instead.
+          release_branches: main,develop
 
       # Resolve the tag/version from whichever source applies. An empty version
       # means "nothing to release" and gates every step below.
@@ -101,8 +106,10 @@ jobs:
           if ($version) { Write-Output "Releasing $tag (version $version, prerelease=$prerelease)" }
           else { Write-Output "No releasable commits since the last tag - skipping." }
 
-      # Stamp the release version into the packaged KitInfo.ini. Only the
-      # staged copy is touched - nothing is committed back to the repo.
+      # Build the two mod-manager zips.  KitInfo.ini keeps its own Version
+      # (maintained by the developer in-repo) - it is NOT overwritten with
+      # the release tag version.  The zips are named after the release
+      # version so they sort correctly on the GitHub Releases page.
       - name: Package
         if: steps.ver.outputs.version != ''
         id: pkg
@@ -120,8 +127,8 @@ jobs:
 
           $kitInfo = "$mainStage/Devkit/Mods/$name/KitInfo.ini"
           if (-not (Test-Path $kitInfo)) { throw "KitInfo.ini not found at $kitInfo" }
-          (Get-Content $kitInfo) -replace '^Version:.*', "Version: $ver" | Set-Content $kitInfo -Encoding ASCII
-          Write-Output "Stamped KitInfo.ini -> Version: $ver"
+          $kitVer = (Select-String -Path $kitInfo -Pattern '^Version:\s*(.+)$').Matches.Groups[1].Value
+          Write-Output "KitInfo.ini Version (unchanged): $kitVer"
 
           Compress-Archive -Path "$mainStage/*"   -DestinationPath "$mainStage.zip"   -Force
           Compress-Archive -Path "$configStage/*" -DestinationPath "$configStage.zip" -Force
