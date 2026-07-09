@@ -1,0 +1,31 @@
+; ============================================================================
+; BSYS_PauseUDF
+; ============================================================================
+; Pause bookkeeping for a save with a running clock while the mod is
+; off (bEnabled=0). Called from either heartbeat while disabled.
+; ============================================================================
+
+Create: BSYS_PauseUDF
+
+float fNow
+float fLast
+
+Begin Function {}
+  if Player.AuxVarGetFlt "_BSYS_fStartDay" == 0
+    return
+  endif
+  if Player.AuxVarGetFlt "_BSYS_iEnded"
+    return
+  endif
+
+  let fNow := GetGameDaysPassed ; already includes the GameHour/24 fraction
+  let fLast := Player.AuxVarGetFlt "_BSYS_fLastSimDay"
+
+  ; Signed delta: forward drift (play, waits, jumps ahead) is pinned so it
+  ; never banks; a backward jump rebases the same way, keeping the anchors
+  ; consistent with the new "now" instead of stranded in the future
+  if fNow != fLast
+    Player.AuxVarSetFlt "_BSYS_fStartDay" (Player.AuxVarGetFlt "_BSYS_fStartDay" + (fNow - fLast))
+    Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
+  endif
+End

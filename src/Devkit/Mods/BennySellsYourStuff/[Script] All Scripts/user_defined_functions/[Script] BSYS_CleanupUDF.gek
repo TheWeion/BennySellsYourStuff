@@ -1,0 +1,28 @@
+; ============================================================================
+; BSYS_CleanupUDF
+; ============================================================================
+; Save hygiene: once Benny is dealt with, erase every BSYS AuxVar from the
+; co-save except _BSYS_iEnded - the sentinel that tells future loads "this
+; save is done" (without it, leftover gear would read as a fresh humbling
+; and restart the clock). bFull=1 (uninstall only) erases the sentinel too.
+; ============================================================================
+
+Create: BSYS_CleanupUDF
+
+int bFull
+
+Begin Function { bFull }
+  Player.AuxVarErase "_BSYS_fStartDay"
+  Player.AuxVarErase "_BSYS_fLastSimDay"
+  Player.AuxVarErase "_BSYS_fAttemptCarry"
+  Player.AuxVarErase "_BSYS_fCapsCarry"
+  Player.AuxVarErase "_BSYS_iItemsSold"
+  Player.AuxVarErase "_BSYS_iCapsSpent"
+  Player.AuxVarErase "_BSYS_LedgerForm"
+  Player.AuxVarErase "_BSYS_LedgerQty"
+  Player.AuxVarErase "_BSYS_LedgerVal"
+
+  if bFull
+    Player.AuxVarErase "_BSYS_iEnded"
+  endif
+End

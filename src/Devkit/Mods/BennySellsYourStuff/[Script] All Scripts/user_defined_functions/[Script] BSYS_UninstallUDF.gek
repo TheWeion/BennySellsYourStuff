@@ -1,0 +1,40 @@
+; ============================================================================
+; BSYS_UninstallUDF
+; ============================================================================
+; Clean removal, run once per save load while DangerZone:bUninstall=1:
+; settle any unfinished spree (skipped if BHYSYS is gone), wipe every
+; AuxVar including the _BSYS_iEnded sentinel, then tell the player to
+; save and remove the mod. InitLoadUDF never runs while uninstalling, so
+; nothing registers and both heartbeats stay inert for the session.
+; ============================================================================
+
+Create: BSYS_UninstallUDF
+
+ref rSafe
+string_var sMsg
+
+Begin Function {}
+  ; --- 1. Settle what's still owed ---
+  if (Player.AuxVarGetFlt "_BSYS_fStartDay") > 0 && (Player.AuxVarGetFlt "_BSYS_iEnded") == 0
+    let rSafe := EditorIDToFormID "SSSStolenWeaponsRef"
+
+    if rSafe
+      Goo1.AuxVarSetRef "*_BSYS_rSafe" rSafe
+      Goo1.AuxVarSetRef "*_BSYS_rNote" (EditorIDToFormID "sssBennyGearNote")
+      Goo1.AuxVarSetRef "*_BSYS_rKey" (EditorIDToFormID "BennySafeKey")
+
+      Call BSYS_SimUDF
+    endif
+  endif
+
+  ; --- 2. Full wipe, sentinel included ---
+  Call BSYS_CleanupUDF 1
+
+  ; --- 3. Hand the save back to the player ---
+  let sMsg := Call BSYS_TranslateUDF "BSYS_uninstallMessage"
+  MessageBoxEx ($sMsg)
+
+  if Goo1.AuxVarGetFlt "*_BSYS" 1
+    Print "BSYS - Uninstall: spree settled, all mod data removed."
+  endif
+End
