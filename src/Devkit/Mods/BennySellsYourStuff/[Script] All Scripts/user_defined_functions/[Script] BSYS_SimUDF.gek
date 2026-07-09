@@ -1,0 +1,212 @@
+; ============================================================================
+; BSYS_SimUDF
+; ============================================================================
+; The incremental fencing simulation: settles sales and spending over
+; [max(last settled, humbling + grace), now] in one-day chunks, so
+; escalation stays week-accurate. Only unsimulated time is processed -
+; safe to call from anywhere, any number of times.
+;
+; Effective INT/CHA/LCK = permanent stats shifted by the Luck gap
+; (eff = clamp(stat + (BennyLCK - PlayerLCK) * fLuckModWeight, 1, 10)):
+; CHA drives attempt rate, INT smart picks, LCK the contested roll
+; (TrySellUDF). Fractional attempts/caps carry across calls. Caps never
+; fall below iCapsFloor, unspendable demand is dropped, and bSpendCaps=0
+; turns the caps channel off.
+; ============================================================================
+
+Create: BSYS_SimUDF
+
+ref rSafe
+
+float fNow
+float fStart
+float fFrom
+float fSellStart
+float fGrace
+float fBaseRate
+float fEscPerWeek
+float fCapsPerDay
+float fLuckWeight
+int iCapsFloor
+int iGuard
+
+float fBennyLCK
+float fPlayerLCK
+float fStatMod
+float fEffINT
+float fEffCHA
+float fEffLCK
+
+float fCursor
+float fChunk
+float fWeeks
+float fEscal
+float fAttCarry
+float fCapsCarry
+float fLuckFactor
+
+int iToSpend
+int iAvail
+int iSpentNow
+int iAttemptsDone
+int bDebug
+int bSpendCaps
+float fWindow
+string_var sDur
+
+Begin Function {}
+  let rSafe := Goo1.AuxVarGetRef "*_BSYS_rSafe"
+  let fStart := Player.AuxVarGetFlt "_BSYS_fStartDay"
+
+  if fStart == 0
+    return
+  endif
+
+  ; JIP GetGameDaysPassed already includes the GameHour/24 fraction (verified
+  ; in 57.54 source) - adding it again would double-count and make the clock
+  ; jump backward at midnight, spuriously firing the rebase below
+  let fNow := GetGameDaysPassed
+
+  ; Window start: last settled day, but never inside the grace period
+  let fGrace := Goo1.AuxVarGetFlt "*_BSYS" 3
+  let fFrom := Player.AuxVarGetFlt "_BSYS_fLastSimDay"
+
+  ; Backward clock jump (console SetGameHour/SetGameDay, time mods): rebase
+  ; both anchors by the deficit so elapsed progress, grace and escalation
+  ; survive and the sim resumes from the new "now" instead of stalling until
+  ; the clock catches its old high-water mark. Against the RAW clock, before
+  ; the freeze clamp below, so a deferred-end clamp can't look like a jump.
+  if fNow < fFrom
+    let fStart := fStart - (fFrom - fNow)
+    Player.AuxVarSetFlt "_BSYS_fStartDay" fStart
+    Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
+    let fFrom := fNow
+  endif
+
+  ; If an end arrived while the safe's view was open (EndCheckUDF's
+  ; deferral), never settle past that moment
+  if (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") > 0 && fNow > (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay")
+    let fNow := Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay"
+  endif
+
+  let fSellStart := fStart + fGrace
+
+  if fFrom < fSellStart
+    let fFrom := fSellStart
+  endif
+
+  if fNow <= fFrom
+    ; Keep the high-water mark current even when nothing settles (e.g. in
+    ; the grace period), so backward-jump rebasing and pause pinning measure
+    ; against the real clock - otherwise a rebase mid-grace refunds grace
+    if fNow > (Player.AuxVarGetFlt "_BSYS_fLastSimDay")
+      Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
+    endif
+    return
+  endif
+
+  ; Config
+  let fBaseRate := Goo1.AuxVarGetFlt "*_BSYS" 4
+  let fEscPerWeek := Goo1.AuxVarGetFlt "*_BSYS" 5
+  let fCapsPerDay := Goo1.AuxVarGetFlt "*_BSYS" 6
+  let fLuckWeight := Goo1.AuxVarGetFlt "*_BSYS" 7
+  let iCapsFloor := Goo1.AuxVarGetFlt "*_BSYS" 8
+  let iGuard := Goo1.AuxVarGetFlt "*_BSYS" 11
+  let bSpendCaps := Goo1.AuxVarGetFlt "*_BSYS" 25
+
+  ; Actor stats, read live
+  let fBennyLCK := BennyREF.GetPermanentActorValue Luck
+  let fPlayerLCK := Player.GetPermanentActorValue Luck
+  let fStatMod := (fBennyLCK - fPlayerLCK) * fLuckWeight
+
+  let fEffINT := Clamp ((BennyREF.GetPermanentActorValue Intelligence) + fStatMod) 1 10
+  let fEffCHA := Clamp ((BennyREF.GetPermanentActorValue Charisma) + fStatMod) 1 10
+  let fEffLCK := Clamp (fBennyLCK + fStatMod) 1 10
+
+  let fLuckFactor := Clamp (1 - ((fPlayerLCK - fBennyLCK) * 0.08)) 0.25 1.75
+
+  let fAttCarry := Player.AuxVarGetFlt "_BSYS_fAttemptCarry"
+  let fCapsCarry := Player.AuxVarGetFlt "_BSYS_fCapsCarry"
+
+  ; Items only reappear between settles (early break-in stashing), so
+  ; re-check emptiness once per settle, not per attempt
+  Goo1.AuxVarSetFlt "*_BSYS_bSafeDry" 0
+
+  ; One-day chunks keep escalation week-accurate
+  let fCursor := fFrom
+
+  while fCursor < fNow
+    let fChunk := fNow - fCursor
+
+    if fChunk > 1
+      let fChunk := 1
+    endif
+
+    let fWeeks := (fCursor - fStart) / 7
+    let fEscal := 1 + (fEscPerWeek * fWeeks)
+
+    ; Sale attempts - CHA finds the buyers
+    let fAttCarry += fBaseRate * (0.5 + (fEffCHA / 10)) * fEscal * fChunk
+
+    while fAttCarry >= 1 && iGuard > 0 && (Goo1.AuxVarGetFlt "*_BSYS_bSafeDry") == 0
+      Call BSYS_TrySellUDF fEffINT fEffCHA fEffLCK fPlayerLCK fWeeks
+      let fAttCarry -= 1
+      let iGuard -= 1
+      let iAttemptsDone += 1
+    loop
+
+    ; A dry safe drops its attempt backlog (caps still drain)
+    if (Goo1.AuxVarGetFlt "*_BSYS_bSafeDry") == 1
+      let fAttCarry := 0
+    endif
+
+    ; Caps - worse player Luck means Benny burns them faster
+    if bSpendCaps
+      let fCapsCarry += fCapsPerDay * fEscal * fLuckFactor * (Rand 0.75 1.25) * fChunk
+    endif
+
+    let fCursor += fChunk
+  loop
+
+  ; Settle cap hit: drop the rest of the backlog
+  if iGuard <= 0
+    let fAttCarry := 0
+  endif
+
+  ; Spend accumulated caps, never below the floor
+  let iSpentNow := 0
+  let iToSpend := 0
+
+  if bSpendCaps
+    let iToSpend := Floor fCapsCarry
+  endif
+
+  if iToSpend > 0
+    let iAvail := (rSafe.GetItemCount Caps001) - iCapsFloor
+
+    if iAvail > 0
+      if iToSpend > iAvail
+        let iToSpend := iAvail
+      endif
+
+      rSafe.RemoveItem Caps001 iToSpend 1
+      Player.AuxVarSetFlt "_BSYS_iCapsSpent" (Player.AuxVarGetFlt "_BSYS_iCapsSpent" + iToSpend)
+      let iSpentNow := iToSpend
+    endif
+
+    ; Drop the integral demand whether or not it could be spent
+    let fCapsCarry -= Floor fCapsCarry
+  endif
+
+  Player.AuxVarSetFlt "_BSYS_fAttemptCarry" fAttCarry
+  Player.AuxVarSetFlt "_BSYS_fCapsCarry" fCapsCarry
+  Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  if bDebug && (iAttemptsDone > 0 || iSpentNow > 0)
+    let fWindow := fNow - fFrom
+    let sDur := Call BSYS_FormatDaysUDF fWindow
+    Print "BSYS - Settled " + $sDur + ": " + $iAttemptsDone + " sale attempt(s), " + $iSpentNow + " caps spent | Benny eff INT " + $fEffINT + " / CHA " + $fEffCHA + " / LCK " + $fEffLCK + " vs Player LCK " + $fPlayerLCK
+  endif
+End

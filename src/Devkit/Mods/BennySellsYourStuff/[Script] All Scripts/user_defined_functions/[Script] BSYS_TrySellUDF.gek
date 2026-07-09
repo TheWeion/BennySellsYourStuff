@@ -1,0 +1,198 @@
+; ============================================================================
+; BSYS_TrySellUDF
+; ============================================================================
+; One sale attempt, called by BSYS_SimUDF with Benny's effective stats.
+;   1. Snapshot sellable items: positive value, not caps/key/note/quest
+;      item, category enabled in [Fencing] (by base-form type code).
+;   2. Target: effINT * iSmartPickWeightPct % chance (ramping in over week
+;      one) to pick the best item, else a random one.
+;   3. Luck contest: dN + LCK each (N = iLuckRollDie, integer dice);
+;      player tie or win and the buyer walks.
+;   4. Lot size from the win margin: cheap items (< iCheapItemValue) move
+;      1 + floor((margin + effCHA) * fCheapLotWeight) units, others
+;      1 + floor(margin / iLotMarginDivisor), clamped to the stack.
+; ============================================================================
+
+Create: BSYS_TrySellUDF
+
+float fEffINT
+float fEffCHA
+float fEffLCK
+float fPlayerLCK
+float fRampWeeks
+
+ref rSafe
+ref rNote
+ref rKey
+ref rItem
+ref rPick
+ref rBest
+
+array_var aItems
+array_var aIter
+array_var aTypeSlots
+array_var aSellable
+
+string_var sPickMode
+
+int bDebug
+int iIdx
+int iBestVal
+int iVal
+int iPickVal
+int iQty
+int iCount
+int iType
+int iSlot
+float fDie
+float fBennyRoll
+float fPlayerRoll
+float fMargin
+int iLedgerSize
+int iLedgerIdx
+int bLedgerFound
+
+Begin Function { fEffINT, fEffCHA, fEffLCK, fPlayerLCK, fRampWeeks }
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+  let rSafe := Goo1.AuxVarGetRef "*_BSYS_rSafe"
+  let rNote := Goo1.AuxVarGetRef "*_BSYS_rNote"
+  let rKey := Goo1.AuxVarGetRef "*_BSYS_rKey"
+
+  ; --- 1. Snapshot sellable items ---
+  ; JIP GetAllItems returns the safe's unique base forms with net count > 0
+  ; (args: all types, keep non-playables, skip quest items - the same form
+  ; flag IsQuestItem reads). The map routes a base-form type code to its
+  ; [Fencing] config slot: 40 weapon, 47 aid, 41 ammo, 25 book, 31 misc,
+  ; 103 weapon mod, 46 key; armor (24) splits into armor/power armor below,
+  ; and any unmapped type falls through to "other" (slot 24).
+  let aTypeSlots := ar_Map 40::15 47::18 41::19 25::20 31::21 103::22 46::23
+  let aItems := rSafe.GetAllItems 0 0 1
+  let aSellable := ar_Construct Array
+  let rBest := 0
+  let iBestVal := -1
+
+  ForEach aIter <- aItems
+    let rItem := *aIter
+
+    if rItem == Caps001 || rItem == rNote || rItem == rKey
+      continue
+    endif
+
+    let iType := GetType rItem
+
+    if iType == 24
+      if IsPowerArmor rItem
+        let iSlot := 17 ; Fencing:bFencePowerArmor
+      else
+        let iSlot := 16 ; Fencing:bFenceArmor
+      endif
+    elseif eval (ar_HasKey aTypeSlots iType)
+      let iSlot := aTypeSlots[iType]
+    else
+      let iSlot := 24 ; Fencing:bFenceOther
+    endif
+
+    if (Goo1.AuxVarGetFlt "*_BSYS" iSlot) == 0
+      continue
+    endif
+
+    let iVal := GetValue rItem
+
+    if iVal <= 0
+      continue
+    endif
+
+    ar_Append aSellable rItem
+
+    if iVal > iBestVal
+      let iBestVal := iVal
+      let rBest := rItem
+    endif
+  Loop
+
+  if eval (ar_Size aSellable) == 0
+    ; Stop SimUDF burning attempts on an empty safe this settle
+    Goo1.AuxVarSetFlt "*_BSYS_bSafeDry" 1
+
+    if bDebug
+      Print "BSYS - Attempt: nothing sellable left in the safe"
+    endif
+    return
+  endif
+
+  ; --- 2. Target: does Benny spot the good stuff? (ramps over week one) ---
+  if (Rand 0 100) < (fEffINT * (Goo1.AuxVarGetFlt "*_BSYS" 9) * (Clamp fRampWeeks 0 1))
+    let rPick := rBest
+    let sPickMode := "appraised"
+  else
+    let iIdx := Floor (Rand 0 (ar_Size aSellable))
+
+    if eval iIdx >= (ar_Size aSellable)
+      let iIdx := (ar_Size aSellable) - 1
+    endif
+
+    let rPick := aSellable[iIdx]
+    let sPickMode := "random grab"
+  endif
+
+  let iPickVal := GetValue rPick
+
+  ; --- 3. Luck contest: player win or tie keeps the item ---
+  ; Floor makes these true integer dice, so ties can happen (and go to you)
+  let fDie := Goo1.AuxVarGetFlt "*_BSYS" 14
+  let fBennyRoll := (Floor (Rand 1 (fDie + 1))) + fEffLCK
+  let fPlayerRoll := (Floor (Rand 1 (fDie + 1))) + fPlayerLCK
+
+  if fPlayerRoll >= fBennyRoll
+    if bDebug
+      Print "BSYS - Attempt: " + (LNGetName rPick) + " (val " + $iPickVal + ", " + $sPickMode + ") | Benny " + $fBennyRoll + " vs Player " + $fPlayerRoll + " -> SAVED, buyer walked"
+    endif
+    return
+  endif
+
+  let fMargin := fBennyRoll - fPlayerRoll
+
+  ; --- 4. Lot size: the harder he wins, the more units move ---
+  let iCount := rSafe.GetItemCount rPick
+
+  if iPickVal < (Goo1.AuxVarGetFlt "*_BSYS" 10)
+    let iQty := 1 + Floor ((fMargin + fEffCHA) * (Goo1.AuxVarGetFlt "*_BSYS" 13))
+  else
+    let iQty := 1 + Floor (fMargin / (Goo1.AuxVarGetFlt "*_BSYS" 12))
+  endif
+
+  if iQty < 1
+    let iQty := 1
+  endif
+  if iQty > iCount
+    let iQty := iCount
+  endif
+
+  rSafe.RemoveItem rPick iQty 1
+  Player.AuxVarSetFlt "_BSYS_iItemsSold" (Player.AuxVarGetFlt "_BSYS_iItemsSold" + iQty)
+
+  ; --- Ledger: accumulate onto this form's row, or append a new one ---
+  let iLedgerSize := Player.AuxVarSize "_BSYS_LedgerForm"
+  let iLedgerIdx := 0
+  let bLedgerFound := 0
+
+  while iLedgerIdx < iLedgerSize
+    if (Player.AuxVarGetRef "_BSYS_LedgerForm" iLedgerIdx) == rPick
+      Player.AuxVarSetFlt "_BSYS_LedgerQty" ((Player.AuxVarGetFlt "_BSYS_LedgerQty" iLedgerIdx) + iQty) iLedgerIdx
+      Player.AuxVarSetFlt "_BSYS_LedgerVal" ((Player.AuxVarGetFlt "_BSYS_LedgerVal" iLedgerIdx) + (iQty * iPickVal)) iLedgerIdx
+      let bLedgerFound := 1
+      break
+    endif
+    let iLedgerIdx += 1
+  loop
+
+  if bLedgerFound == 0
+    Player.AuxVarSetRef "_BSYS_LedgerForm" rPick -1
+    Player.AuxVarSetFlt "_BSYS_LedgerQty" iQty -1
+    Player.AuxVarSetFlt "_BSYS_LedgerVal" (iQty * iPickVal) -1
+  endif
+
+  if bDebug
+    Print "BSYS - Attempt: " + (LNGetName rPick) + " (val " + $iPickVal + ", " + $sPickMode + ") | Benny " + $fBennyRoll + " vs Player " + $fPlayerRoll + " -> SOLD " + $iQty + "x (margin " + $fMargin + ")"
+  endif
+End
