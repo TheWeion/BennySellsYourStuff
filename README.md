@@ -88,7 +88,7 @@ barter menu with your Barter skill and perks.
 every sale, dated and priced, with the buyer's name and location — plus a
 Luck-scaled cut of the caps he *actually* made fencing your gear
 (`fRecoverCapsPctBase` + `fRecoverCapsPctPerLuck`). Buy an item back and its
-entry gets scribbled out the next time you open the book.
+entry's font will be emboldened out the next time you open the book.
 
 **Vendor churn.** Merchants trade your gear onward every `fMigrateDays`
 (default 7). Past `fGoneDays` (default 28) an item leaves the Mojave for
