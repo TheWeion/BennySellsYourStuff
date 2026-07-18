@@ -1,0 +1,44 @@
+; ============================================================================
+; BSYS_IntelPickUDE
+; ============================================================================
+; MessageBoxExAlt callback for the intel item list (box 1). Maps the
+; clicked button back to its ledger row via *_BSYS_IntelRow, stages it in
+; *_BSYS_iIntelSel and chains the approach box (BSYS_IntelAskUDF). The
+; last button (index == *_BSYS_iIntelCount) is Never mind - the only exit
+; from the chain back to the conversation.
+; ============================================================================
+
+Create: BSYS_IntelPickUDE
+
+int iButton
+int iRow
+int bDebug
+
+Begin Function { iButton }
+  ; Click shield up = this click belongs to whatever dismissed the
+  ; previous box, not to this one - re-show and wait for a real choice
+  if Goo1.AuxVarGetFlt "*_BSYS_bBoxShield"
+    Call BSYS_IntelListUDF 1
+    return
+  endif
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  if iButton >= (Goo1.AuxVarGetFlt "*_BSYS_iIntelCount")
+    if bDebug
+      Print "BSYS | IntelPick: btn=" + $iButton + " -> never mind, chain closed"
+    endif
+
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+    return
+  endif
+
+  let iRow := Goo1.AuxVarGetFlt "*_BSYS_IntelRow" iButton
+  Goo1.AuxVarSetFlt "*_BSYS_iIntelSel" iRow
+
+  if bDebug
+    Print "BSYS | IntelPick: btn=" + $iButton + " -> row " + $iRow
+  endif
+
+  Call BSYS_IntelAskUDF
+End

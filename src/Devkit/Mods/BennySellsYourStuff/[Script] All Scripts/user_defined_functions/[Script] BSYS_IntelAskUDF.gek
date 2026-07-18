@@ -1,0 +1,78 @@
+; ============================================================================
+; BSYS_IntelAskUDF
+; ============================================================================
+; Builds and shows intel box 2 - the approach choice for the row staged in
+; *_BSYS_iIntelSel. FIXED 4-button layout: 0 Persuade, 1 Intimidate,
+; 2 Pay, 3 Never mind. Failed options stay in place marked [Failed]
+; (clicking one is a no-op that re-opens this box), so every button keeps
+; a stable index across rebuilds - a click-through or double-click landing
+; where the previous box's button sat can never hit a live option it
+; didn't aim at. That exact hazard (fail a check, box swaps in place,
+; second click lands on Pay) was observed in-game.
+; bShowCheckValues=0 turns [Speech 42/50] into [Speech].
+; ============================================================================
+
+Create: BSYS_IntelAskUDF
+
+ref rItem
+string_var sBox
+string_var sLabel
+string_var sStat
+string_var sFail
+int iRow
+int iCost
+int iChk
+int iCur
+int iMask
+
+Begin Function {}
+  let iRow := Goo1.AuxVarGetFlt "*_BSYS_iIntelSel"
+  let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iRow
+  let iCost := Call BSYS_IntelCostUDF iRow 0
+  let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iRow
+  let sFail := Call BSYS_TranslateUDF "BSYS_intelFailed"
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelTitle"
+  let sBox := "^" + $sLabel + "^" + (LNGetName rItem)
+
+  ; Button 0: Persuade
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelPersuade"
+  let sStat := Call BSYS_TranslateUDF "BSYS_intelSpeech"
+
+  if eval (iMask & 2)
+    let sBox += "|" + $sFail + " " + $sLabel
+  elseif Goo1.AuxVarGetFlt "*_BSYS" 37 ; bShowCheckValues
+    let iCur := Player.GetActorValue Speech
+    let iChk := Call BSYS_IntelCostUDF iRow 1
+    let sBox += "|" + $sLabel + " [" + $sStat + " " + $iCur + "/" + $iChk + "]"
+  else
+    let sBox += "|" + $sLabel + " [" + $sStat + "]"
+  endif
+
+  ; Button 1: Intimidate
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelIntimidate"
+  let sStat := Call BSYS_TranslateUDF "BSYS_intelStrength"
+
+  if eval (iMask & 4)
+    let sBox += "|" + $sFail + " " + $sLabel
+  elseif Goo1.AuxVarGetFlt "*_BSYS" 37 ; bShowCheckValues
+    let iCur := Player.GetPermanentActorValue Strength
+    let iChk := Goo1.AuxVarGetFlt "*_BSYS" 35 ; iInfoStrCheck
+    let sBox += "|" + $sLabel + " [" + $sStat + " " + $iCur + "/" + $iChk + "]"
+  else
+    let sBox += "|" + $sLabel + " [" + $sStat + "]"
+  endif
+
+  ; Button 2: Pay, button 3: Never mind
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelPay"
+  let sBox += "|" + $sLabel + " " + $iCost
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelNever"
+  let sBox += "|" + $sLabel
+
+  ; One-frame click shield: the in-place box swap happens during the
+  ; previous click's processing, so anything the input layer re-delivers
+  ; this frame must not count as a choice (see BSYS_IntelShieldUDF)
+  Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 1
+  CallAfterFrames 1 BSYS_IntelShieldUDF 1
+  MessageBoxExAlt BSYS_IntelPayUDE ($sBox)
+End

@@ -1,0 +1,16 @@
+; ============================================================================
+; BSYS_IntelShieldUDF
+; ============================================================================
+; Clears the one-frame click shield armed whenever an intel box is shown
+; (BSYS_IntelListUDF / BSYS_IntelAskUDF). Scheduled via CallAfterFrames 1
+; with the menu-mode flag - the same re-trigger guard idiom MCM Extender
+; uses. While the shield is up, the box callbacks re-show their box
+; instead of processing the click. CallAfterFrames timers flush on load,
+; so InitLoadUDF also resets the flag - a load can never strand it.
+; ============================================================================
+
+Create: BSYS_IntelShieldUDF
+
+Begin Function {}
+  Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 0
+End

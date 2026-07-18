@@ -1,0 +1,24 @@
+; ============================================================================
+; BSYS_BarterCloseUDE
+; ============================================================================
+; Close handler for barter (1053) and dialogue (1009). Closing BARTER with
+; a fence offers the intel list - but only as DISCOVERY (some row never
+; brought up before; see BSYS_IntelListUDF's bChain 0 rule).
+;
+; DELIBERATELY does nothing on dialogue close: menu open/close order
+; across the dialogue<->barter swap is untrustworthy in BOTH directions
+; (log-proven), so a close-side capture clear could clobber the partner
+; mid-conversation and silently kill the list. Every consumer runs after
+; a recapturing menu-open, and GameScript releases all conversation state
+; (capture + greeting claim) once no menu has been open for 2 frames.
+; ============================================================================
+
+Create: BSYS_BarterCloseUDE
+
+int iMenuId
+
+Begin Function { iMenuId }
+  if iMenuId == 1053
+    Call BSYS_IntelListUDF 0
+  endif
+End

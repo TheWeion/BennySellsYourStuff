@@ -1,0 +1,98 @@
+; ============================================================================
+; BSYS_BarterOpenUDE
+; ============================================================================
+; Open handler for dialogue (1009) and barter (1053): captures the NPC
+; while the menu is guaranteed alive (GetMenuTargetRef only works on open
+; menus). On DIALOGUE open with a fence holding outstanding intel, it also
+; offers the greeting box (discuss / something else) - but only for rows
+; the fence has already brought up once (LedgerIntel bit 16, stamped when
+; the barter-close list first shows them): the player has to notice the
+; gear missing from the shelves before the topic exists.
+;
+; ONE greeting evaluation per CONVERSATION (*_BSYS_rGreetedNPC claim):
+; leaving the trade screen re-opens the dialogue menu, and that 1009-open
+; can fire BEFORE the barter's 1053-close (log-proven in-game), so no
+; close-side marker can tell a barter return from a fresh conversation.
+; The first 1009-open claims the NPC instead; GameScript releases the
+; claim once no dialogue/barter menu is open at all.
+; ============================================================================
+
+Create: BSYS_BarterOpenUDE
+
+ref rVendor
+ref rPrev
+string_var sBox
+string_var sLabel
+int iMenuId
+int iNum
+int iIdx
+int iCount
+int iMask
+
+Begin Function { iMenuId }
+  let rVendor := GetMenuTargetRef iMenuId
+  Goo1.AuxVarSetRef "*_BSYS_rBarterVendor" rVendor
+
+  if iMenuId != 1009
+    return
+  endif
+  if rVendor == 0 || rVendor == BennyREF
+    return
+  endif
+
+  ; Already claimed = a barter round-trip inside the same conversation
+  let rPrev := Goo1.AuxVarGetRef "*_BSYS_rGreetedNPC"
+
+  if rVendor == rPrev
+    return
+  endif
+
+  Goo1.AuxVarSetRef "*_BSYS_rGreetedNPC" rVendor
+  if (Goo1.AuxVarGetFlt "*_BSYS" 26) == 0 ; FencingNetwork:bPhysicalFencing
+    return
+  endif
+
+  ; One box at a time: exiting barter fires 1053-close (which queues the
+  ; item list) AND re-opens 1009 in the same transition - a second box
+  ; here would cross-wire JIP's LIFO callback stack against the engine's
+  ; FIFO display queue (see BSYS_IntelListUDF)
+  if Goo1.AuxVarGetFlt "*_BSYS_bIntelLive"
+    return
+  endif
+
+  ; Anything to discuss? Same filter as the list itself, PLUS bit 16 -
+  ; only rows that already came up at a barter-close are greeting-worthy
+  let iCount := 0
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+  let iIdx := 0
+
+  while iIdx < iNum
+    let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+
+    if eval ((Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx) == 1) && ((Player.AuxVarGetRef "_BSYS_LedgerVendor" iIdx) == rVendor) && ((Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx) != rVendor) && ((iMask & 1) == 0) && ((iMask & 16) > 0)
+      let iCount += 1
+    endif
+
+    let iIdx += 1
+  loop
+
+  if iCount == 0
+    return
+  endif
+
+  if Goo1.AuxVarGetFlt "*_BSYS" 1 ; Main:bDebug
+    Print "BSYS | Greet: count=" + $iCount + " @ " + (LNGetName rVendor)
+  endif
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelTitle"
+  let sBox := "^" + $sLabel + "^"
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelGreetBody"
+  let sBox += $sLabel
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelGreetDiscuss"
+  let sBox += "|" + $sLabel
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelGreetLater"
+  let sBox += "|" + $sLabel
+
+  Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 1
+  MessageBoxExAlt BSYS_IntelGreetUDE ($sBox)
+End

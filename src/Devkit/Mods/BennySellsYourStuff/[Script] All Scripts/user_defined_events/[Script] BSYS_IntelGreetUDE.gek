@@ -1,0 +1,23 @@
+; ============================================================================
+; BSYS_IntelGreetUDE
+; ============================================================================
+; MessageBoxExAlt callback for the dialogue greeting shown when the player
+; starts a conversation with a fence holding outstanding intel:
+;   0 Discuss the fenced gear     -> intel box 1 (BSYS_IntelListUDF)
+;   1 Talk about something else   -> dismiss; the conversation continues
+; (An "End conversation" option was tried and cut: no way to close the
+; dialogue menu cleanly from under a message box - CloseActiveMenu direct
+; wedges the message menu, and the deferred variant misbehaved in-game.)
+; ============================================================================
+
+Create: BSYS_IntelGreetUDE
+
+int iButton
+
+Begin Function { iButton }
+  if iButton == 0
+    Call BSYS_IntelListUDF 1
+  else
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+  endif
+End
