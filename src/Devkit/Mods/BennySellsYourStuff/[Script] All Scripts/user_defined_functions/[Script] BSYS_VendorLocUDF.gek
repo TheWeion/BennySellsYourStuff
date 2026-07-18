@@ -1,0 +1,56 @@
+; ============================================================================
+; BSYS_VendorLocUDF
+; ============================================================================
+; Maps a fencing-network vendor ref to its translated location name for the
+; ledger ("sold to Old Lady Gibson in Gibson's Scrap Yard"). Returns an
+; empty string for unknown refs - the caller then omits the location
+; clause. Vendor refs match BSYS_VendorPickUDF's table (FalloutNV.esm).
+; ============================================================================
+
+Create: BSYS_VendorLocUDF
+
+ref rVendor
+string_var sKey
+string_var sOut
+
+Begin Function { rVendor }
+  let sKey := ""
+
+  if rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E3") || rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E2") || rVendor == (GetFormFromMod "FalloutNV.esm" "117E10")
+    let sKey := "BSYS_locFreeside"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E7")
+    let sKey := "BSYS_locSilverRush"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "116598")
+    let sKey := "BSYS_locVault21"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "115C5F")
+    let sKey := "BSYS_locMormonFort"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "F2EAA")
+    let sKey := "BSYS_locGunRunners"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "F1866")
+    let sKey := "BSYS_locCrimsonCaravan"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "F18BD") || rVendor == (GetFormFromMod "FalloutNV.esm" "F83AA")
+    let sKey := "BSYS_locWestside"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "ED4DD")
+    let sKey := "BSYS_locMedicalClinic"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "E6825") || rVendor == (GetFormFromMod "FalloutNV.esm" "E686E")
+    let sKey := "BSYS_loc188"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "8CD28")
+    let sKey := "BSYS_locNovac"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "84207")
+    let sKey := "BSYS_locScrapYard"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "E2882")
+    let sKey := "BSYS_locPrimm"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "104C79") || rVendor == (GetFormFromMod "FalloutNV.esm" "104C6D")
+    let sKey := "BSYS_locGoodsprings"
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "140DA9")
+    let sKey := "BSYS_locMojaveOutpost"
+  endif
+
+  if (sv_Length sKey) == 0
+    let sOut := ""
+  else
+    let sOut := Call BSYS_TranslateUDF $sKey
+  endif
+
+  SetFunctionValue $sOut
+End

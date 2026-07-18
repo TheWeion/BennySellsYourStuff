@@ -1,0 +1,183 @@
+; ============================================================================
+; BSYS_IntelPayUDE
+; ============================================================================
+; MessageBoxExAlt callback for the intel approach box (box 2, built by
+; BSYS_IntelAskUDF). Button indexes are FIXED: 0 Persuade, 1 Intimidate,
+; 2 Pay, 3+ Never mind. Clicking a [Failed] option is a no-op re-show.
+;   Persuade   - deterministic [Speech cur/req]; half price on success;
+;                failing LOCKS it for this item
+;   Intimidate - [Strength cur/req]; free on success; the karma hit lands
+;                on the ATTEMPT, pass or fail; failing locks it
+;   Pay        - the scaled price (BSYS_IntelCostUDF)
+; A FAILED check (or empty pockets) re-opens the same item's options with
+; the failed one marked [Failed] - the player may want another approach.
+; Success snapshots the location (LedgerIntelVendor), rewrites the
+; ledger's intel appendix (if the book exists yet) and returns to the
+; item list; only Never mind goes back to it empty-handed.
+; ============================================================================
+
+Create: BSYS_IntelPayUDE
+
+ref rItem
+ref rCur
+string_var sMsg
+string_var sLoc
+string_var sLabel
+int iButton
+int iRow
+int iCost
+int iOk
+int iKarma
+int iMask
+int iReq
+int iCur
+int bDebug
+
+Begin Function { iButton }
+  ; Click shield up = a re-delivered click from the box swap, not a
+  ; choice - re-show and wait
+  if Goo1.AuxVarGetFlt "*_BSYS_bBoxShield"
+    Call BSYS_IntelAskUDF
+    return
+  endif
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+  let iRow := Goo1.AuxVarGetFlt "*_BSYS_iIntelSel"
+  let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iRow
+  let iCost := Call BSYS_IntelCostUDF iRow 0
+  let iOk := 0
+
+  if bDebug
+    Print "BSYS | IntelPay: btn=" + $iButton + " row=" + $iRow + " mask=" + $iMask + " cost=" + $iCost
+  endif
+
+  if iButton == 0
+    ; Persuade - a locked option stays visible as [Failed]; clicking it
+    ; does nothing but re-open the box (stable layout, see IntelAskUDF)
+    if eval (iMask & 2)
+      Call BSYS_IntelAskUDF
+      return
+    endif
+
+    ; Both comparison sides hoisted to plain vars: a classic 'if' with a
+    ; command call on EACH side misevaluates (the Strength check passed
+    ; for everyone in-game until its sides were hoisted)
+    let iReq := Call BSYS_IntelCostUDF iRow 1
+    let iCur := Player.GetActorValue Speech
+
+    if bDebug
+      Print "BSYS | IntelPay: speech check " + $iCur + "/" + $iReq
+    endif
+
+    if iCur >= iReq
+      let iCost := Floor (iCost / 2)
+      let iOk := 1
+    else
+      Player.AuxVarSetFlt "_BSYS_LedgerIntel" (iMask + 2) iRow
+    endif
+  elseif iButton == 1
+    ; Intimidate - locked is a no-op; otherwise the aggression costs
+    ; karma whether or not it works. The karma value is hoisted - an
+    ; inline ref-called command in a classic arg is a compile-killer
+    if eval (iMask & 4)
+      Call BSYS_IntelAskUDF
+      return
+    endif
+
+    let iKarma := 0 - (Goo1.AuxVarGetFlt "*_BSYS" 36)
+    RewardKarma iKarma
+
+    ; Hoisted sides - see the speech check above
+    let iCur := Player.GetPermanentActorValue Strength
+    let iReq := Goo1.AuxVarGetFlt "*_BSYS" 35 ; iInfoStrCheck
+
+    if bDebug
+      Print "BSYS | IntelPay: strength check " + $iCur + "/" + $iReq
+    endif
+
+    if iCur >= iReq
+      let iCost := 0
+      let iOk := 1
+    else
+      Player.AuxVarSetFlt "_BSYS_LedgerIntel" (iMask + 4) iRow
+    endif
+  elseif iButton == 2
+    ; Pay full price
+    let iOk := 1
+  else
+    ; Never mind - back to the item list
+    Call BSYS_IntelListUDF 1
+    return
+  endif
+
+  if iOk == 0
+    ; Failed check: say so, then re-open this item's options with the
+    ; failed approach marked - the player may still try another way
+    let sMsg := Call BSYS_TranslateUDF "BSYS_intelFail"
+    MessageExAlt 4 ($sMsg)
+    Call BSYS_IntelAskUDF
+    return
+  endif
+
+  if iCost > 0
+    if (Player.GetItemCount Caps001) < iCost
+      let sMsg := Call BSYS_TranslateUDF "BSYS_intelNoCaps"
+      MessageExAlt 4 ($sMsg)
+      Call BSYS_IntelAskUDF
+      return
+    endif
+
+    Player.RemoveItem Caps001 iCost 1
+  endif
+
+  ; --- The reveal --- (bit-guarded: a re-reveal must never double-add).
+  ; The revealed location is SNAPSHOT into LedgerIntelVendor: if the item
+  ; churns onward later, the note keeps saying what the fence said, and
+  ; fresh intel (new checks, new caps) is needed for the new spot.
+  let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iRow
+
+  if eval (iMask & 1) == 0
+    let iMask := iMask + 1
+  endif
+
+  ; Bit 8 = intel bought at least once. Churn clears the revealed bit,
+  ; but the ledger's intel appendix keeps the paid-for snapshot via bit 8
+  if eval (iMask & 8) == 0
+    let iMask := iMask + 8
+  endif
+
+  Player.AuxVarSetFlt "_BSYS_LedgerIntel" iMask iRow
+
+  let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iRow
+  let rCur := Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iRow
+  Player.AuxVarSetRef "_BSYS_LedgerIntelVendor" rCur iRow
+
+  if bDebug
+    Print "BSYS | IntelPay: row " + $iRow + " REVEALED for " + $iCost + " caps"
+  endif
+
+  let sLoc := Call BSYS_VendorLocUDF rCur
+
+  let sMsg := Call BSYS_TranslateUDF "BSYS_intelReveal"
+  let sMsg += " " + (LNGetName rItem) + " "
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelRevealEnd"
+  let sMsg += $sLabel + " " + (LNGetName rCur)
+
+  if (sv_Length sLoc) > 0
+    let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerIn"
+    let sMsg += " " + $sLabel + " " + $sLoc
+  endif
+
+  MessageExAlt 6 ($sMsg)
+
+  ; Write it onto the ledger's intel appendix if the book exists yet -
+  ; pre-end reveals live in the arrays until the ledger is written at
+  ; spree end. (Same rebuild guard as BSYS_BoughtBackUDE)
+  if Player.AuxVarGetFlt "_BSYS_iEnded" && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+    Call BSYS_BookWriteUDF (Player.AuxVarGetFlt "_BSYS_fBookEnd")
+    Call BSYS_BookReconUDE (Goo1.AuxVarGetRef "*_BSYS_rBook")
+  endif
+
+  ; Back to the list for the next item
+  Call BSYS_IntelListUDF 1
+End

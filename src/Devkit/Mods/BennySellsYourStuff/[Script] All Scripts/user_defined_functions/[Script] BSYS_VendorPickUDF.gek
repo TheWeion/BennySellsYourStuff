@@ -1,0 +1,116 @@
+; ============================================================================
+; BSYS_VendorPickUDF
+; ============================================================================
+; Picks the merchant Benny fences an item to. Returns the vendor's placed
+; NPC ref, or 0 if no fence fits (caller then falls back to the classic
+; vanish behavior).
+;
+; The table is every viable Mojave vendor (form IDs verified in
+; FalloutNV.esm 2026-07-11; TTW relocates none of them), tiered by distance
+; from the Strip:
+;   1 = Strip/Freeside   2 = Vegas outskirts   3 = far Mojave
+; Category mask bits: 1 weapons, 4 armor, 8 aid, 16 ammo, 32 misc, 64 mods.
+;
+; The tier window widens with elapsed weeks - Benny works his local fences
+; first, then pushes goods farther out - and a low-Luck player risks the
+; item starting a ring farther away. Within the allowed window the
+; outermost tier with a matching fence wins, falling inward when a
+; category has no buyer that far out.
+; ============================================================================
+
+Create: BSYS_VendorPickUDF
+
+array_var aTable
+array_var aPool
+array_var aIter
+array_var aEntry
+string_var sID
+ref rVendor
+int iCatBit
+int iMaxTier
+float fRoll
+float fBump
+int iTier
+int iIdx
+float fWeeks
+float fPlayerLCK
+
+Begin Function { iCatBit, fWeeks, fPlayerLCK }
+  ; FormID (FalloutNV.esm placed ref), tier, category mask
+  let aTable := ar_Construct Array
+  ar_Append aTable (ar_List "10D8E3" 1 81)  ; Mick (Mick & Ralph's) - weapons/ammo/mods
+  ar_Append aTable (ar_List "10D8E2" 1 40)  ; Ralph - misc/chems
+  ar_Append aTable (ar_List "10D8E7" 1 5)   ; Gloria Van Graff (Silver Rush) - weapons/armor
+  ar_Append aTable (ar_List "116598" 1 32)  ; Sarah Weintraub (Vault 21) - misc
+  ar_Append aTable (ar_List "117E10" 1 40)  ; Dixon (Freeside North) - chems/junk
+  ar_Append aTable (ar_List "115C5F" 1 8)   ; Julie Farkas (Old Mormon Fort) - aid
+  ar_Append aTable (ar_List "F2EAA" 2 81)   ; Gun Runners Vendortron - weapons/ammo/mods
+  ar_Append aTable (ar_List "F1866" 2 61)   ; Blake (Crimson Caravan) - general
+  ar_Append aTable (ar_List "F18BD" 2 53)   ; Miguel (Pawn Shop) - weapons/armor/ammo/misc
+  ar_Append aTable (ar_List "F83AA" 2 8)    ; Klamath Bob - liquor
+  ar_Append aTable (ar_List "ED4DD" 2 8)    ; Doctor Usanagi - aid
+  ar_Append aTable (ar_List "E6825" 3 44)   ; Michelle (188) - general/food
+  ar_Append aTable (ar_List "E686E" 3 81)   ; Alexander (188) - weapons/ammo/mods
+  ar_Append aTable (ar_List "8CD28" 3 25)   ; Cliff Briscoe (Novac) - ammo/weapons/aid
+  ar_Append aTable (ar_List "84207" 3 96)   ; Old Lady Gibson - parts/junk
+  ar_Append aTable (ar_List "E2882" 3 49)   ; Johnson Nash (Primm) - general
+  ar_Append aTable (ar_List "104C79" 3 53)  ; Chet (Goodsprings) - general/armor
+  ar_Append aTable (ar_List "104C6D" 3 8)   ; Trudy (Goodsprings) - food/drink
+  ar_Append aTable (ar_List "140DA9" 3 61)  ; Lacey (Mojave Outpost) - general
+
+  ; Tier window: local fences first, wider with time on the clock
+  if fWeeks < 1
+    let iMaxTier := 1
+  elseif fWeeks < 3
+    let iMaxTier := 2
+  else
+    let iMaxTier := 3
+  endif
+
+  ; An unlucky Courier's gear travels farther, sooner. Sides hoisted: a
+  ; classic 'if' comparing a command call against a parenthesized
+  ; expression misevaluates (proven in-game on the intel Strength check)
+  let fRoll := Rand 0 100
+  let fBump := (10 - fPlayerLCK) * 4
+
+  if iMaxTier < 3 && fRoll < fBump
+    let iMaxTier += 1
+  endif
+
+  ; Outermost allowed tier with a matching fence wins; fall inward if the
+  ; category has no buyer that far out
+  let iTier := iMaxTier
+
+  while iTier >= 1
+    let aPool := ar_Construct Array
+
+    ForEach aIter <- aTable
+      let aEntry := *aIter
+
+      if eval (aEntry[1] == iTier) && (aEntry[2] & iCatBit)
+        ar_Append aPool (aEntry[0])
+      endif
+    Loop
+
+    if eval (ar_Size aPool) > 0
+      break
+    endif
+
+    let iTier -= 1
+  loop
+
+  if eval (ar_Size aPool) == 0
+    SetFunctionValue 0
+    return
+  endif
+
+  let iIdx := Floor (Rand 0 (ar_Size aPool))
+
+  if eval iIdx >= (ar_Size aPool)
+    let iIdx := (ar_Size aPool) - 1
+  endif
+
+  let sID := aPool[iIdx]
+  let rVendor := GetFormFromMod "FalloutNV.esm" ($sID)
+  SetFunctionValue rVendor
+End

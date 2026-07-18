@@ -1,0 +1,21 @@
+; ============================================================================
+; BSYS_BookMovedUDE
+; ============================================================================
+; "ShowOff:OnAdd" handler, filtered to the ledger book instance: fires
+; whenever the book lands in any container via a vanilla add path (looting
+; it, stashing it, selling it). Records the new holder so the reconstruct
+; pass after the next load can put the book back where it belongs.
+; ============================================================================
+
+Create: BSYS_BookMovedUDE
+
+ref rItem
+ref rOwner
+
+Begin Function { rItem, rOwner }
+  Player.AuxVarSetRef "_BSYS_rBookOwner" rOwner
+
+  if rOwner == PlayerREF
+    Player.AuxVarSetFlt "_BSYS_bBookTaken" 1
+  endif
+End

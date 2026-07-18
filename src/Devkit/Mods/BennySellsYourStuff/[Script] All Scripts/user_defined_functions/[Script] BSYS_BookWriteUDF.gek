@@ -1,0 +1,242 @@
+; ============================================================================
+; BSYS_BookWriteUDF
+; ============================================================================
+; Builds the ledger book text from the per-sale rows and stores it in the
+; save. Called by EndCheckUDF at spree end, and again on every post-end
+; buyback (BSYS_BoughtBackUDE) and intel reveal (BSYS_IntelPayUDE).
+;
+; The book ends with the INTEL APPENDIX: everything the fences told the
+; player, on its own page in the other hand (face 3), one line per row
+; whose intel was ever bought. Each line is the SNAPSHOT the fence sold
+; (LedgerIntelVendor) - churn does not update it; fresh intel does.
+;
+; Format is engine book-HTML (the only renderer that ever shows a BOOK's
+; description is the book menu): <br> is the only line break it honors.
+; This UDF stores CONTENT only - BSYS_BookReconUDE prepends the [Path=...]
+; layout prefix and the <font face=N> tag at dress time, so the stored
+; text stays presentation-agnostic. Pagination is automatic.
+;
+; Storage: SetFormDescription tolerates ~16K, so rows stop at 15K with a
+; truncation note. AuxVarSetStr silently truncates single values at 8191
+; chars, so the text is stored in 7500-char chunks on an indexed AuxVar
+; and reassembled by BSYS_BookReconUDE.
+; ============================================================================
+
+Create: BSYS_BookWriteUDF
+
+ref rItem
+ref rVendor
+ref rIntel
+string_var sText
+string_var sIntel
+string_var sEndLabel
+string_var sChunk
+string_var sDate
+string_var sAtLabel
+string_var sCapsLabel
+string_var sSoldToLabel
+string_var sInLabel
+string_var sLoc
+string_var sLabel
+string_var sDur
+int iIdx
+int iNum
+int iQty
+int iVal
+int iSold
+int iSpent
+int iGotTotal
+int iHour
+int iMin
+int iLen
+int iState
+int iMask
+int iBudget
+int bTrunc
+int bIntelTrunc
+float fStart
+float fRef
+float fRowDay
+float fTime
+float fEndDay
+
+Begin Function { fEndDay }
+  let fStart := Player.AuxVarGetFlt "_BSYS_fStartDay"
+  let iSold := Player.AuxVarGetFlt "_BSYS_iItemsSold"
+  let iSpent := Player.AuxVarGetFlt "_BSYS_iCapsSpent"
+
+  ; Fetch row labels once - BSYS_TranslateUDF reads from disk per call
+  let sAtLabel := Call BSYS_TranslateUDF "BSYS_ledgerAt"
+  let sCapsLabel := Call BSYS_TranslateUDF "BSYS_ledgerCaps"
+  let sSoldToLabel := Call BSYS_TranslateUDF "BSYS_ledgerSoldTo"
+  let sInLabel := Call BSYS_TranslateUDF "BSYS_ledgerIn"
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerTitle"
+  ; Content only - the [Path=...] layout prefix and <font face=N> tag are
+  ; prepended at dress time (BSYS_BookReconUDE), so presentation changes
+  ; in later versions reach books already written into saves
+  let sText := $sLabel + "<br><br>"
+
+  ; Reference "today": the row stamps and the calendar globals both move
+  ; with the live clock, so whole-day deltas from now map onto real dates
+  let fRef := GetGameDaysPassed
+
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+
+  ; Benny's total take, summed over ALL rows up front so the 15K text
+  ; truncation below can't shortchange it
+  let iIdx := 0
+
+  while iIdx < iNum
+    let iGotTotal += Player.AuxVarGetFlt "_BSYS_LedgerCapsGot" iIdx
+    let iIdx += 1
+  loop
+
+  ; --- Intel appendix, built FIRST so the sale-entry budget below makes
+  ; room for it. Qualifier: intel ever bought (bit 1 = revealed now,
+  ; bit 8 = bought before churn staled it - the paid-for snapshot stays)
+  ; and a real snapshot vendor. The mask gate matters: old saves had live
+  ; vendors PADDED into never-revealed rows' LedgerIntelVendor, so the
+  ; snapshot alone proves nothing. Recovered rows drop out - nothing
+  ; left to chase ---
+  let sIntel := ""
+  let sEndLabel := Call BSYS_TranslateUDF "BSYS_intelRevealEnd"
+  let bIntelTrunc := 0
+  let iIdx := 0
+
+  while iIdx < iNum
+    ; The appendix carries its own cap so an enormous intel collection
+    ; can never crush the sale entries to nothing or push the combined
+    ; text past the ~16K SetFormDescription ceiling
+    if (sv_Length sIntel) > 7000
+      let bIntelTrunc := 1
+      break
+    endif
+
+    let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+    let iState := Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx
+    let rIntel := Player.AuxVarGetRef "_BSYS_LedgerIntelVendor" iIdx
+
+    if eval ((iMask & 9) != 0) && (iState != 3) && (rIntel != 0) && (rIntel != BennyREF)
+      let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+      let iQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+      let sIntel += $iQty + "x " + (LNGetName rItem) + " - " + $sEndLabel + " " + (LNGetName rIntel)
+      let sLoc := Call BSYS_VendorLocUDF rIntel
+
+      if (sv_Length sLoc) > 0
+        let sIntel += " " + $sInLabel + " " + $sLoc
+      endif
+
+      let sIntel += "<br>"
+    endif
+
+    let iIdx += 1
+  loop
+
+  if bIntelTrunc
+    let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerTruncated"
+    let sIntel += $sLabel + "<br>"
+  endif
+
+  ; The appendix opens on its own page, in the other hand (face 3 - the
+  ; same ink that scribbles out recovered entries)
+  if (sv_Length sIntel) > 0
+    let sLabel := Call BSYS_TranslateUDF "BSYS_intelTitle"
+    let sIntel := "<hr><font face=3>" + $sLabel + "<br><br>" + $sIntel + "</font><font face=2>"
+  endif
+
+  let iBudget := 15000 - (sv_Length sIntel)
+
+  ; One line per sale: "02/20/2285 at 10:36 - 2x Scrap Metal (6 caps)"
+  let iIdx := 0
+  let bTrunc := 0
+
+  while iIdx < iNum
+    if (sv_Length sText) > iBudget
+      let bTrunc := 1
+      break
+    endif
+
+    let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+    let iQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+    let iVal := Player.AuxVarGetFlt "_BSYS_LedgerVal" iIdx
+    let fRowDay := Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx
+    let rVendor := Player.AuxVarGetRef "_BSYS_LedgerVendor" iIdx
+    let iState := Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx
+
+    ; Bought back: no strikethrough exists in the book renderer, and the
+    ; FONT tag's color attribute parses but never renders (the tile's own
+    ; color wins - A/B tested in-game). The glow-baked medium face DOES
+    ; render and reads as smudged-over ink against the clean body font,
+    ; so recovered rows get face 3 plus the X mark
+    if iState == 3
+      let sText += "<font face=3>[X] "
+    endif
+
+    ; Calendar date from the whole-day delta; time of day from the fraction
+    let sDate := Call BSYS_FormatDateUDF ((Floor fRef) - (Floor fRowDay))
+    let fTime := (fRowDay - (Floor fRowDay)) * 24
+    let iHour := Floor fTime
+    let iMin := Floor ((fTime - iHour) * 60)
+
+    let sText += $sDate + " " + $sAtLabel + " " + $iHour + ":"
+
+    if iMin < 10
+      let sText += "0"
+    endif
+
+    let sText += $iMin + " - " + $iQty + "x " + (LNGetName rItem) + " (" + $iVal + " " + $sCapsLabel + ")"
+
+    ; The first hop is public knowledge - anything after it costs intel.
+    ; BennyREF is the "no buyer recorded" sentinel; 0 = pre-network row
+    if rVendor != 0 && rVendor != BennyREF
+      let sText += " - " + $sSoldToLabel + " " + (LNGetName rVendor)
+      let sLoc := Call BSYS_VendorLocUDF rVendor
+
+      if (sv_Length sLoc) > 0
+        let sText += " " + $sInLabel + " " + $sLoc
+      endif
+    endif
+
+    if iState == 3
+      let sText += "</font><font face=2>"
+    endif
+
+    let sText += "<br>"
+    let iIdx += 1
+  loop
+
+  if bTrunc
+    let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerTruncated"
+    let sText += $sLabel + "<br>"
+  endif
+
+  ; Totals
+  let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerTotalSold"
+  let sText += "<br>" + $sLabel + " " + $iSold + "<br>"
+
+  if iGotTotal > 0
+    let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerBennyGot"
+    let sText += $sLabel + " " + $iGotTotal + "<br>"
+  endif
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerCapsSpent"
+  let sText += $sLabel + " " + $iSpent + "<br>"
+  let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerDuration"
+  let sDur := Call BSYS_FormatDaysUDF (fEndDay - fStart)
+  let sText += $sLabel + " " + $sDur
+
+  ; The intel appendix - the last page(s), after everything of Benny's
+  let sText += $sIntel
+
+  ; Chunked store
+  Player.AuxVarErase "_BSYS_sBookDesc"
+  let iLen := sv_Length sText
+  let iIdx := 0
+
+  while iIdx < iLen
+    let sChunk := sv_SubString sText iIdx 7500
+    Player.AuxVarSetStr "_BSYS_sBookDesc" ($sChunk) -1
+    let iIdx += 7500
+  loop
+End

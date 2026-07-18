@@ -1,0 +1,161 @@
+; ============================================================================
+; BSYS_IntelListUDF
+; ============================================================================
+; Builds and shows intel box 1 - the list of THIS vendor's migrated,
+; not-yet-revealed items - for the NPC captured in *_BSYS_rBarterVendor.
+; Reached two ways: closing the barter menu with a fence (bChain 0), or
+; from inside the box chain's own callbacks (bChain 1). Rows already
+; revealed (LedgerIntel bit 1) are filtered out, so the list empties
+; itself as the player buys intel.
+;
+; The bChain 0 entry is the DISCOVERY path: it only speaks up while some
+; row here has never been brought up (bit 16 clear) - i.e. the first
+; visit, or new gear churned through since. Known rows ride along once
+; the box opens, but alone they stay silent; the dialogue greeting
+; (BSYS_BarterOpenUDE) is their channel.
+;
+; ONE BOX AT A TIME: JIP stores MessageBoxExAlt callbacks on a LIFO stack
+; while the engine displays queued boxes FIFO, so two boxes in flight
+; cross-wire every callback (and eventually wedge the stack for the whole
+; session). *_BSYS_bIntelLive owns that rule: entry calls yield to a live
+; box, chain calls (which replace the box they were clicked from - safe,
+; the stack never goes deeper than 1) bypass the guard. This UDF settles
+; the flag on every path: 1 when it shows a box, 0 when it doesn't.
+; ============================================================================
+
+Create: BSYS_IntelListUDF
+
+ref rVendor
+ref rItem
+string_var sBox
+string_var sLabel
+int bChain
+int iNum
+int iIdx
+int iRow
+int iCount
+int iFresh
+int iFreshLeft
+int iMask
+int bDebug
+
+Begin Function { bChain }
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  if bChain == 0 && (Goo1.AuxVarGetFlt "*_BSYS_bIntelLive")
+    if bDebug
+      Print "BSYS | IntelList: entry skipped, box already live"
+    endif
+    return
+  endif
+
+  let rVendor := Goo1.AuxVarGetRef "*_BSYS_rBarterVendor"
+
+  if rVendor == 0 || rVendor == BennyREF
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+    return
+  endif
+  if (Goo1.AuxVarGetFlt "*_BSYS" 26) == 0 ; FencingNetwork:bPhysicalFencing
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+    return
+  endif
+
+  Goo1.AuxVarErase "*_BSYS_IntelRow"
+  let iCount := 0
+  let iFresh := 0
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelTitle"
+  let sBox := "^" + $sLabel + "^"
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelBody"
+  let sBox += $sLabel
+
+  ; Pre-pass: count eligible rows that still need their introduction
+  ; (bit 16 clear). They get RESERVED seats in the 8-slot box, so a full
+  ; window of known rows can never hide a new arrival - while the display
+  ; order itself stays ascending, identical across same-visit rebuilds
+  ; (fresh-FIRST seating reordered the list mid-chain once rows were
+  ; stamped, right under the player's cursor)
+  let iFreshLeft := 0
+  let iIdx := 0
+
+  while iIdx < iNum
+    if eval ((Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx) == 1) && ((Player.AuxVarGetRef "_BSYS_LedgerVendor" iIdx) == rVendor) && ((Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx) != rVendor) && (((Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx) & 1) == 0) && (((Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx) & 16) == 0)
+      let iFreshLeft += 1
+    endif
+
+    let iIdx += 1
+  loop
+
+  let iIdx := 0
+
+  while iIdx < iNum
+    if iCount < 8
+      ; State 1, first hop here, NOT currently back in this very shop,
+      ; and not already revealed (intel bit 1)
+      if eval ((Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx) == 1) && ((Player.AuxVarGetRef "_BSYS_LedgerVendor" iIdx) == rVendor) && ((Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx) != rVendor) && (((Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx) & 1) == 0)
+        let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+
+        if eval (iMask & 16) == 0
+          ; Fresh rows always seat (their slot was reserved)
+          let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+          let sBox += "|" + (LNGetName rItem)
+          Goo1.AuxVarSetFlt "*_BSYS_IntelRow" iIdx -1
+          let iCount += 1
+          let iFresh += 1
+          let iFreshLeft -= 1
+        elseif eval (8 - iCount) > iFreshLeft
+          ; Known rows only take seats the remaining fresh rows don't need
+          let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+          let sBox += "|" + (LNGetName rItem)
+          Goo1.AuxVarSetFlt "*_BSYS_IntelRow" iIdx -1
+          let iCount += 1
+        endif
+      endif
+    endif
+
+    let iIdx += 1
+  loop
+
+  if bDebug
+    Print "BSYS | IntelList: chain=" + $bChain + " count=" + $iCount + " fresh=" + $iFresh + " @ " + (LNGetName rVendor)
+  endif
+
+  if iCount == 0
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+    return
+  endif
+
+  ; Discovery rule: the shop counter only pipes up over something new
+  if bChain == 0 && iFresh == 0
+    Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+    return
+  endif
+
+  let sLabel := Call BSYS_TranslateUDF "BSYS_intelNever"
+  let sBox += "|" + $sLabel
+
+  Goo1.AuxVarSetFlt "*_BSYS_iIntelCount" iCount
+  Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 1
+
+  ; One-frame click shield around the show (see BSYS_IntelShieldUDF)
+  Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 1
+  CallAfterFrames 1 BSYS_IntelShieldUDF 1
+  MessageBoxExAlt BSYS_IntelPickUDE ($sBox)
+
+  ; Bit 16 = brought up at least once: stamped only on rows a box will
+  ; actually show (a skipped box must leave its rows fresh), consumed by
+  ; the greeting gate and the discovery rule above
+  let iIdx := 0
+
+  while iIdx < iCount
+    let iRow := Goo1.AuxVarGetFlt "*_BSYS_IntelRow" iIdx
+    let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iRow
+
+    if eval (iMask & 16) == 0
+      Player.AuxVarSetFlt "_BSYS_LedgerIntel" (iMask + 16) iRow
+    endif
+
+    let iIdx += 1
+  loop
+End

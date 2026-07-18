@@ -1,7 +1,8 @@
 ; ============================================================================
 ; BSYS_TrySellUDF
 ; ============================================================================
-; One sale attempt, called by BSYS_SimUDF with Benny's effective stats.
+; One sale attempt, called by BSYS_SimUDF with Benny's effective stats and
+; the in-game day this attempt lands on (fSaleDay, for the ledger).
 ;   1. Snapshot sellable items: positive value, not caps/key/note/quest
 ;      item, category enabled in [Fencing] (by base-form type code).
 ;   2. Target: effINT * iSmartPickWeightPct % chance (ramping in over week
@@ -48,11 +49,16 @@ float fDie
 float fBennyRoll
 float fPlayerRoll
 float fMargin
-int iLedgerSize
-int iLedgerIdx
-int bLedgerFound
+float fRoll
+float fSmart
+float fSaleDay
+float fRate
+int iCapsGot
+int iCatBit
+ref rVendor
+ref rChest
 
-Begin Function { fEffINT, fEffCHA, fEffLCK, fPlayerLCK, fRampWeeks }
+Begin Function { fEffINT, fEffCHA, fEffLCK, fPlayerLCK, fRampWeeks, fSaleDay }
   let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
   let rSafe := Goo1.AuxVarGetRef "*_BSYS_rSafe"
   let rNote := Goo1.AuxVarGetRef "*_BSYS_rNote"
@@ -121,7 +127,12 @@ Begin Function { fEffINT, fEffCHA, fEffLCK, fPlayerLCK, fRampWeeks }
   endif
 
   ; --- 2. Target: does Benny spot the good stuff? (ramps over week one) ---
-  if (Rand 0 100) < (fEffINT * (Goo1.AuxVarGetFlt "*_BSYS" 9) * (Clamp fRampWeeks 0 1))
+  ; Sides hoisted: a classic 'if' with a command call on each side of the
+  ; comparison misevaluates (proven in-game on the intel Strength check)
+  let fRoll := Rand 0 100
+  let fSmart := fEffINT * (Goo1.AuxVarGetFlt "*_BSYS" 9) * (Clamp fRampWeeks 0 1)
+
+  if fRoll < fSmart
     let rPick := rBest
     let sPickMode := "appraised"
   else
@@ -171,28 +182,93 @@ Begin Function { fEffINT, fEffCHA, fEffLCK, fPlayerLCK, fRampWeeks }
   rSafe.RemoveItem rPick iQty 1
   Player.AuxVarSetFlt "_BSYS_iItemsSold" (Player.AuxVarGetFlt "_BSYS_iItemsSold" + iQty)
 
-  ; --- Ledger: accumulate onto this form's row, or append a new one ---
-  let iLedgerSize := Player.AuxVarSize "_BSYS_LedgerForm"
-  let iLedgerIdx := 0
-  let bLedgerFound := 0
+  ; --- 5. Benny's actual take: the game's own sell formula at Benny's
+  ; Barter skill (11 in vanilla - he fences at ~50% of value). GMSTs are
+  ; read live because mods (EDGE TTW) mutate them at runtime. A lucky
+  ; Courier squeezes his margins further ---
+  let fRate := (GetNumericGameSetting "fBarterSellBase") + ((BennyREF.GetActorValue Barter) * (GetNumericGameSetting "fBarterSellMult") / 100)
 
-  while iLedgerIdx < iLedgerSize
-    if (Player.AuxVarGetRef "_BSYS_LedgerForm" iLedgerIdx) == rPick
-      Player.AuxVarSetFlt "_BSYS_LedgerQty" ((Player.AuxVarGetFlt "_BSYS_LedgerQty" iLedgerIdx) + iQty) iLedgerIdx
-      Player.AuxVarSetFlt "_BSYS_LedgerVal" ((Player.AuxVarGetFlt "_BSYS_LedgerVal" iLedgerIdx) + (iQty * iPickVal)) iLedgerIdx
-      let bLedgerFound := 1
-      break
-    endif
-    let iLedgerIdx += 1
-  loop
-
-  if bLedgerFound == 0
-    Player.AuxVarSetRef "_BSYS_LedgerForm" rPick -1
-    Player.AuxVarSetFlt "_BSYS_LedgerQty" iQty -1
-    Player.AuxVarSetFlt "_BSYS_LedgerVal" (iQty * iPickVal) -1
+  if fRate > 1
+    let fRate := 1
   endif
+  if fPlayerLCK > 5
+    let fRate := fRate * (1 - ((fPlayerLCK - 5) * 0.04))
+  endif
+  if fRate < 0.1
+    let fRate := 0.1
+  endif
+
+  let iCapsGot := Floor (iPickVal * iQty * fRate)
+
+  ; --- 6. Physical fencing: the buyer is a real merchant, and the goods
+  ; really land in their shop chest (resolved live via the merchant link,
+  ; so relinking mods are respected). Category mask mirrors the type codes
+  ; used by the [Fencing] filter above ---
+  let rVendor := 0
+
+  if Goo1.AuxVarGetFlt "*_BSYS" 26 ; FencingNetwork:bPhysicalFencing
+    let iType := GetType rPick
+
+    if iType == 40
+      let iCatBit := 1
+    elseif iType == 24
+      let iCatBit := 4
+    elseif iType == 47
+      let iCatBit := 8
+    elseif iType == 41
+      let iCatBit := 16
+    elseif iType == 103
+      let iCatBit := 64
+    else
+      let iCatBit := 32
+    endif
+
+    let rVendor := Call BSYS_VendorPickUDF iCatBit fRampWeeks fPlayerLCK
+
+    if rVendor
+      let rChest := rVendor.GetMerchantContainer
+
+      if rChest
+        rChest.AddItemAlt rPick iQty
+      else
+        let rVendor := 0
+      endif
+    endif
+  endif
+
+  ; --- Ledger: one row per sale, chronological, stamped with the in-game
+  ; day the deal closed. Feeds the player-facing ledger book and the debug
+  ; table; erased by CleanupUDF once the book text is built.
+  ; State: 0 = at the recorded vendor (future phases: 1 migrated, 2 gone,
+  ; 3 recovered); vendor 0 = classic vanish (network off or no fence fit)
+  Player.AuxVarSetRef "_BSYS_LedgerForm" rPick -1
+  Player.AuxVarSetFlt "_BSYS_LedgerQty" iQty -1
+  Player.AuxVarSetFlt "_BSYS_LedgerVal" (iQty * iPickVal) -1
+  Player.AuxVarSetFlt "_BSYS_LedgerDay" fSaleDay -1
+  Player.AuxVarSetFlt "_BSYS_LedgerCapsGot" iCapsGot -1
+
+  if rVendor
+    Player.AuxVarSetRef "_BSYS_LedgerVendor" rVendor -1
+    Player.AuxVarSetRef "_BSYS_LedgerCurVendor" rVendor -1
+    Player.AuxVarSetFlt "_BSYS_LedgerState" 0 -1
+  else
+    ; A null ref can't be stored - the classic form param rejects it and
+    ; the append silently no-ops, desyncing the parallel arrays. BennyREF
+    ; is the "no buyer recorded" sentinel; state 2 = gone from the world
+    Player.AuxVarSetRef "_BSYS_LedgerVendor" BennyREF -1
+    Player.AuxVarSetRef "_BSYS_LedgerCurVendor" BennyREF -1
+    Player.AuxVarSetFlt "_BSYS_LedgerState" 2 -1
+  endif
+
+  Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" fSaleDay -1
+  Player.AuxVarSetFlt "_BSYS_LedgerIntel" 0 -1
+  Player.AuxVarSetRef "_BSYS_LedgerIntelVendor" BennyREF -1
 
   if bDebug
     Print "BSYS - Attempt: " + (LNGetName rPick) + " (val " + $iPickVal + ", " + $sPickMode + ") | Benny " + $fBennyRoll + " vs Player " + $fPlayerRoll + " -> SOLD " + $iQty + "x (margin " + $fMargin + ")"
+
+    if rVendor
+      Print "BSYS -   fenced to " + (LNGetName rVendor) + " for " + $iCapsGot + " caps"
+    endif
   endif
 End

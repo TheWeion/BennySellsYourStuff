@@ -11,8 +11,11 @@ Create: BSYS_InitLoadUDF
 
 ref rSafe
 ref rSuite
+ref rPad
 int bStolenGear
 int bDebug
+int iNum
+int iPad
 
 Begin Function {}
   let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
@@ -20,12 +23,80 @@ Begin Function {}
   Goo1.AuxVarSetFlt "*_BSYS_bActive" 0
   Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
   ; Session vars outlive save loads - clear the freeze timestamp so a
-  ; previous save's deferral can't leak into this one
+  ; previous save's deferral can't leak into this one, and the intel-box
+  ; live flag so a box open at load time can't block the chain forever
   Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+  Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+  Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" 0
+  Goo1.AuxVarErase "*_BSYS_rGreetedNPC"
+  ; CallAfterFrames timers flush on load - never leave the shield stuck up
+  Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 0
+
+  ; --- Ledger migration: rows written by older versions predate the
+  ; newer parallel arrays. Indexed AuxVars are append-only, so pad them
+  ; level with LedgerForm BEFORE anything reads or appends them (this runs
+  ; ahead of Gate 0 because ended saves keep their rows for buyback
+  ; tracking). Defaults: day = humbling day, vendor = BennyREF ("no buyer
+  ; recorded"), state 2 = gone from the world ---
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+
+  while (Player.AuxVarSize "_BSYS_LedgerDay") < iNum
+    Player.AuxVarSetFlt "_BSYS_LedgerDay" (Player.AuxVarGetFlt "_BSYS_fStartDay") -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerVendor") < iNum
+    Player.AuxVarSetRef "_BSYS_LedgerVendor" BennyREF -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerCapsGot") < iNum
+    Player.AuxVarSetFlt "_BSYS_LedgerCapsGot" 0 -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerState") < iNum
+    Player.AuxVarSetFlt "_BSYS_LedgerState" 2 -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerCurVendor") < iNum
+    let iPad := Player.AuxVarSize "_BSYS_LedgerCurVendor"
+    let rPad := Player.AuxVarGetRef "_BSYS_LedgerVendor" iPad
+
+    if rPad == 0
+      let rPad := BennyREF
+    endif
+
+    Player.AuxVarSetRef "_BSYS_LedgerCurVendor" rPad -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerMoveDay") < iNum
+    Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" (Player.AuxVarGetFlt "_BSYS_fStartDay") -1
+  loop
+  while (Player.AuxVarSize "_BSYS_LedgerIntel") < iNum
+    Player.AuxVarSetFlt "_BSYS_LedgerIntel" 0 -1
+  loop
+  ; Snapshot pad seeds from the live location: saves from before the
+  ; snapshot existed had notes built from CurVendor, so this preserves
+  ; what those players already read
+  while (Player.AuxVarSize "_BSYS_LedgerIntelVendor") < iNum
+    let iPad := Player.AuxVarSize "_BSYS_LedgerIntelVendor"
+    let rPad := Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iPad
+
+    if rPad == 0
+      let rPad := BennyREF
+    endif
+
+    Player.AuxVarSetRef "_BSYS_LedgerIntelVendor" rPad -1
+  loop
+
+  if bDebug
+    Call BSYS_DebugDumpUDF
+  endif
 
   ; --- Gate 0: spree already over ---
+  ; The fencing network lives on after the end: keep watching buybacks and
+  ; churning stock on each load
   if Player.AuxVarGetFlt "_BSYS_iEnded"
     Call BSYS_CleanupUDF 0
+    SetEventHandler "OnSell" BSYS_BoughtBackUDE
+    SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1053
+    SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
+    SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
+    SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
+    Call BSYS_FenceReconcileUDF
 
     if bDebug
       Print "BSYS - Spree already over on this save, staying inert"
@@ -90,6 +161,19 @@ Begin Function {}
   ; console clock jump landing in the poll gap while standing at the safe
   ; is already settled when the lid comes up
   SetEventHandler "OnActivate" BSYS_OnActivateUDE "first"::rSafe "second"::player
+
+  ; Buyback watcher: fires per traded stack on any accepted barter deal
+  SetEventHandler "OnSell" BSYS_BoughtBackUDE
+
+  ; Intel chain: capture the NPC at every dialogue/barter open; the list
+  ; offers only on barter close (discovery rule), the greeting once per
+  ; conversation (rGreetedNPC claim, released by GameScript once no menu
+  ; has been open for 2 frames) - menu event ORDER across the
+  ; dialogue<->barter swap is untrustworthy, so nothing is keyed on it
+  SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1053
+  SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
+  SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
+  SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
 
   Print "BSYS - Active. Humbled state and end conditions will be checked momentarily..."
 

@@ -73,6 +73,49 @@ mods, keys (off by default; even non-quest keys can gate content) and a
 catch-all for the rest. Disable a category and those items sit safely in the
 safe while he fences the rest.
 
+## The Fencing Network
+
+Benny's buyers are real. With `bPhysicalFencing=1` (the default), every item
+he fences lands in an actual merchant's inventory somewhere in the Mojave —
+weapons to Mick, energy to the Van Graffs, chems to Dixon, aid to the
+Followers. He works the Strip and Freeside first; the longer he runs (and
+the unluckier you are), the farther out your gear travels — Gun Runners,
+Crimson Caravan, the 188, Novac, Primm, Goodsprings, the Mojave Outpost.
+Walk into the right shop and buy it back at the counter, priced live by the
+barter menu with your Barter skill and perks.
+
+**Benny's Ledger.** When he dies, his body carries a handwritten ledger:
+every sale, dated and priced, with the buyer's name and location — plus a
+Luck-scaled cut of the caps he *actually* made fencing your gear
+(`fRecoverCapsPctBase` + `fRecoverCapsPctPerLuck`). Buy an item back and its
+entry's font will be emboldened out the next time you open the book.
+
+**Vendor churn.** Merchants trade your gear onward every `fMigrateDays`
+(default 7). Past `fGoneDays` (default 28) an item leaves the Mojave for
+good — unless it's unique-protected (`bProtectUniques`): anything another
+mod flags unique (JIP's `ToggleItemUnique`), plus anything at or above
+`iUniqueValueFloor` per unit — the heuristic that catches vanilla uniques,
+since the game data doesn't mark them. Protected items circulate between
+fences forever.
+
+**Tracking it down.** The ledger names each item's *first* buyer only. Once
+goods move on, go back to that merchant and browse their wares — closing
+the barter menu with your gear conspicuously absent starts the
+conversation. After that first talk, simply speaking to the merchant offers
+the topic directly, and the shop counter only pipes up again when something
+*new* of yours has moved through. Persuade them
+(deterministic `[Speech cur/req]` check — half price), intimidate them
+(`[Strength]` check — free, but the karma hit lands whether or not it works,
+and a failed attempt is locked forever), or just pay up. Prices and Speech
+requirements scale with the item's value, your reputation with the fence's
+people, and (caps only) your Barter skill; `bShowCheckValues=0` hides the
+numbers. Bought intel is written onto the **last page of Benny's Ledger**,
+in the Courier's own hand — every tip in one place, separate from Benny's
+entries — and each line is a snapshot of what the fence told you: if the
+goods move again, you'll need fresh intel. (The ledger only exists once
+Benny's spree ends; intel bought before that is remembered and appears the
+moment the book is written.)
+
 ## Requirements
 
 - [xNVSE](https://github.com/xNVSE/NVSE/releases) 6.4.4+
@@ -96,16 +139,19 @@ retroactively sell what you didn't let him).
 
 Mid-save **uninstallation** is safe: all state lives in JIP auxiliary variables in the co-save and is simply orphaned. If you later *reinstall* on the same save, the clock resumes where it froze and the gap settles as a catch-up. If you'd rather avoid that, leave `bEnabled=0` instead of uninstalling — disabling is a true pause, with no backlog and no escalation.
 
-**Full** uninstallation is also possible by enabling `bUninstall=1` in the config and loading the save file, then Benny's selling antics will end cleanly as well as remove any AuxVars that were stored in the save.  Then create a hard save, exit and remove the mod.
+**Full** uninstallation is also possible by enabling `bUninstall=1` in the config and loading the save file, then Benny's selling antics will end cleanly as well as remove any AuxVars that were stored in the save.  Then create a hard save, exit and remove the mod. Items Benny already fenced to merchants stay in the world — they're ordinary base-game items in ordinary shop inventories, so nothing dangles.
 
 ## Configuration
 
 Everything is tunable in `Data\Config\BennySellsYourStuff\Config.ini` — grace
 period, sale rate, escalation, caps drain, luck weighting, smart-pick chance,
-and lot sizes. `bDebug=1` logs every sale attempt to the console (target, pick
-mode, both luck rolls, sold/saved), every settlement with Benny's effective
-stats, and — when his spree ends — a full ledger table of everything he sold
-and every cap he spent. See the comments in the INI.
+lot sizes, and the whole `[FencingNetwork]` (physical fencing, churn cadence,
+despawn horizon, unique protection, intel pricing and checks, death payout).
+`bDebug=1` logs every sale attempt to the console (target, pick mode, both
+luck rolls, sold/saved, the buyer and Benny's take), every settlement with
+Benny's effective stats, churn moves and buybacks as they happen, a full
+fencing-network table on every load, and — when his spree ends — a ledger
+table of everything he sold. See the comments in the INI.
 
 ## Translations
 
