@@ -1,0 +1,60 @@
+; ============================================================================
+; BSYS_DebugDumpUDF
+; ============================================================================
+; Debug-only fencing network dump, printed to the console (consoleout.txt)
+; on every load while Main:bDebug is on. One line per tracked row: state,
+; quantity, item, current holder, days since it last moved, intel mask
+; (1 revealed, 2 persuade-locked, 4 intimidate-locked, 8 note granted,
+; 16 brought up by the fence at least once).
+; ============================================================================
+
+Create: BSYS_DebugDumpUDF
+
+ref rItem
+ref rCur
+string_var sState
+int iNum
+int iIdx
+int iState
+int iQty
+int iMask
+int iDays
+float fNow
+
+Begin Function {}
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+
+  if iNum == 0
+    return
+  endif
+
+  let fNow := GetGameDaysPassed
+  Print "BSYS |============ FENCING NETWORK (" + $iNum + " rows) ============"
+
+  let iIdx := 0
+
+  while iIdx < iNum
+    let iState := Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx
+
+    if iState == 0
+      let sState := "AT VENDOR"
+    elseif iState == 1
+      let sState := "MIGRATED"
+    elseif iState == 2
+      let sState := "GONE"
+    else
+      let sState := "RECOVERED"
+    endif
+
+    let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+    let rCur := Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx
+    let iQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+    let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+    let iDays := Floor (fNow - (Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iIdx))
+
+    Print "BSYS | [" + $sState + "] " + $iQty + "x " + (LNGetName rItem) + " @ " + (LNGetName rCur) + " (moved " + $iDays + "d ago, intel " + $iMask + ")"
+    let iIdx += 1
+  loop
+
+  Print "BSYS |======================================================"
+End
