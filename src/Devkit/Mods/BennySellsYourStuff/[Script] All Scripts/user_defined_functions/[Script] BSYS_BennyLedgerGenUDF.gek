@@ -1,0 +1,27 @@
+; ============================================================================
+; BSYS_BennyLedgerGenUDF
+; ============================================================================
+; Creates the ledger book once at spree end (EndCheckUDF, only when a Benny
+; ref died - the book needs a corpse to sit on). The Plugins+ instance and
+; its placement are serialized into the co-save and restored on every
+; load; only the dressing is memory-only, which BSYS_BookReconUDE re-does
+; on each reconstruct. The AddItemAlt below is therefore the ONLY scripted
+; add the book ever gets.
+; ============================================================================
+
+Create: BSYS_BennyLedgerGenUDF
+
+ref rInst
+ref rOwner
+
+Begin Function {}
+  let rInst := CreateFormInstance BookSkillScience "BSYS"
+  Call BSYS_BookReconUDE rInst
+
+  ; Initial placement on the corpse (EndCheckUDF set the owner just before)
+  let rOwner := Player.AuxVarGetRef "_BSYS_rBookOwner"
+
+  if rOwner
+    rOwner.AddItemAlt rInst 1
+  endif
+End

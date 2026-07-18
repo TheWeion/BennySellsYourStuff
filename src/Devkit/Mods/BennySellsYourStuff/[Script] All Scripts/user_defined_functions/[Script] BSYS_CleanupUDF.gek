@@ -4,7 +4,9 @@
 ; Save hygiene: once Benny is dealt with, erase every BSYS AuxVar from the
 ; co-save except _BSYS_iEnded - the sentinel that tells future loads "this
 ; save is done" (without it, leftover gear would read as a fresh humbling
-; and restart the clock). bFull=1 (uninstall only) erases the sentinel too.
+; and restart the clock) - and the ledger book state (text chunks, owner,
+; taken flag), which is the one feature that lives ON after the end.
+; bFull=1 (uninstall only) erases those too.
 ; ============================================================================
 
 Create: BSYS_CleanupUDF
@@ -12,17 +14,37 @@ Create: BSYS_CleanupUDF
 int bFull
 
 Begin Function { bFull }
-  Player.AuxVarErase "_BSYS_fStartDay"
   Player.AuxVarErase "_BSYS_fLastSimDay"
   Player.AuxVarErase "_BSYS_fAttemptCarry"
   Player.AuxVarErase "_BSYS_fCapsCarry"
-  Player.AuxVarErase "_BSYS_iItemsSold"
-  Player.AuxVarErase "_BSYS_iCapsSpent"
-  Player.AuxVarErase "_BSYS_LedgerForm"
-  Player.AuxVarErase "_BSYS_LedgerQty"
-  Player.AuxVarErase "_BSYS_LedgerVal"
 
+  ; The Ledger* row arrays are the fencing network's live state (where
+  ; every item sits, what's recoverable) and the book text is REBUILT from
+  ; them whenever the player buys an item back - so the rows, the spree
+  ; totals (fStartDay/iItemsSold/iCapsSpent/fBookEnd) and the book state
+  ; all survive a normal clean; a whole spree's worth costs a few KB
   if bFull
     Player.AuxVarErase "_BSYS_iEnded"
+    Player.AuxVarErase "_BSYS_fStartDay"
+    Player.AuxVarErase "_BSYS_iItemsSold"
+    Player.AuxVarErase "_BSYS_iCapsSpent"
+    Player.AuxVarErase "_BSYS_fBookEnd"
+    Player.AuxVarErase "_BSYS_sBookDesc"
+    Player.AuxVarErase "_BSYS_rBookOwner"
+    Player.AuxVarErase "_BSYS_bBookTaken"
+    Player.AuxVarErase "_BSYS_fLastRecon"
+    Player.AuxVarErase "_BSYS_sIntelNote"
+    Player.AuxVarErase "_BSYS_bNoteGiven"
+    Player.AuxVarErase "_BSYS_LedgerIntel"
+    Player.AuxVarErase "_BSYS_LedgerIntelVendor"
+    Player.AuxVarErase "_BSYS_LedgerForm"
+    Player.AuxVarErase "_BSYS_LedgerQty"
+    Player.AuxVarErase "_BSYS_LedgerVal"
+    Player.AuxVarErase "_BSYS_LedgerDay"
+    Player.AuxVarErase "_BSYS_LedgerVendor"
+    Player.AuxVarErase "_BSYS_LedgerCurVendor"
+    Player.AuxVarErase "_BSYS_LedgerCapsGot"
+    Player.AuxVarErase "_BSYS_LedgerState"
+    Player.AuxVarErase "_BSYS_LedgerMoveDay"
   endif
 End

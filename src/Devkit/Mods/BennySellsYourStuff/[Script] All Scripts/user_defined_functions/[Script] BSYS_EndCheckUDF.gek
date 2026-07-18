@@ -18,6 +18,9 @@ Create: BSYS_EndCheckUDF
 
 ref rSafe
 ref rItem
+ref rBookOwner
+ref rCell
+ref rSuite
 array_var aItems
 array_var aIter
 float fNow
@@ -34,6 +37,9 @@ int iSpent
 int iRowQty
 int iRowVal
 int iValTotal
+int iPayTotal
+int iPayout
+float fPayPct
 
 Begin Function {}
   if Goo1.AuxVarGetFlt "*_BSYS_bActive" != 1
@@ -81,13 +87,18 @@ Begin Function {}
   ;        end arriving mid-view still gets timestamped) ---
   let bEnded := 0
 
+  ; Backstop comparison sides hoisted: a classic 'if' with a command call
+  ; on EACH side misevaluates (proven in-game on the intel Strength check)
+  let rCell := BennyREF.GetParentCell
+  let rSuite := Goo1.AuxVarGetRef "*_BSYS_rSuite"
+
   if BennyREF.GetDead || VFortBennyRef.GetDead || VFortBennyCrucifiedRef.GetDead
     let bEnded := 1
   elseif GetStage VMQTops >= 20
     let bEnded := 1
   elseif VStoryEventBennyFled == 1
     let bEnded := 1
-  elseif (BennyREF.GetParentCell) == (Goo1.AuxVarGetRef "*_BSYS_rSuite")
+  elseif rSuite != 0 && rCell == rSuite
     let bEnded := 1
   endif
 
@@ -108,8 +119,9 @@ Begin Function {}
     endif
   endif
 
-  ; --- 4. Settle up to now ---
+  ; --- 4. Settle up to now, then let the fencing network churn ---
   Call BSYS_SimUDF
+  Call BSYS_FenceReconcileUDF
 
   ; --- 5. Freeze on an end condition ---
   if bEnded
@@ -130,6 +142,57 @@ Begin Function {}
       if Goo1.AuxVarGetFlt "*_BSYS" 2 ; Main:bNotifyOnSettle
         let sMsg := Call BSYS_TranslateUDF "BSYS_bennyOnDeathNotification"
         MessageExAlt 5 ($sMsg)
+      endif
+
+      ; --- Benny's ledger book: needs a corpse to sit on, and something
+      ; sold or spent worth writing down. Text is built and stored BEFORE
+      ; CleanupUDF erases the sale rows ---
+      if BennyREF.GetDead || VFortBennyRef.GetDead || VFortBennyCrucifiedRef.GetDead
+        if BennyREF.GetDead
+          let rBookOwner := BennyREF
+        elseif VFortBennyRef.GetDead
+          let rBookOwner := VFortBennyRef
+        else
+          let rBookOwner := VFortBennyCrucifiedRef
+        endif
+
+        ; The end moment is stored so buyback scribbles can rebuild the
+        ; book with the same duration total later
+        Player.AuxVarSetFlt "_BSYS_fBookEnd" fNow
+        Call BSYS_BookWriteUDF fNow
+        Player.AuxVarSetRef "_BSYS_rBookOwner" rBookOwner
+        Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
+        Call BSYS_BennyLedgerGenUDF
+
+        ; --- Death payout: a Luck-scaled cut of what Benny ACTUALLY got
+        ; for the goods (summed real proceeds, not base value) is still
+        ; on the body ---
+        let iPayTotal := 0
+        let iIdx := 0
+        let iNum := Player.AuxVarSize "_BSYS_LedgerCapsGot"
+
+        while iIdx < iNum
+          let iPayTotal += Player.AuxVarGetFlt "_BSYS_LedgerCapsGot" iIdx
+          let iIdx += 1
+        loop
+
+        if iPayTotal > 0
+          let fPayPct := (Goo1.AuxVarGetFlt "*_BSYS" 31) + ((Goo1.AuxVarGetFlt "*_BSYS" 32) * (Player.GetPermanentActorValue Luck))
+
+          if fPayPct > 100
+            let fPayPct := 100
+          endif
+
+          let iPayout := Floor (iPayTotal * fPayPct / 100)
+
+          if iPayout > 0
+            rBookOwner.AddItemAlt Caps001 iPayout
+
+            if bDebug
+              Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for are on the body"
+            endif
+          endif
+        endif
       endif
     endif
 

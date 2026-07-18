@@ -1,0 +1,78 @@
+; ============================================================================
+; BSYS_FormatDateUDF
+; ============================================================================
+; Returns the in-game calendar date iDaysBack whole days before today as
+; "MM/DD/YYYY". Anchored to the live GameYear/GameMonth/GameDay globals -
+; the same source JIP's GetGameDaysPassed derives from - so a day-serial
+; delta between two GetGameDaysPassed values maps straight onto it.
+; Walks backward month by month; Gregorian leap rules.
+; ============================================================================
+
+Create: BSYS_FormatDateUDF
+
+int iDaysBack
+int iY
+int iM
+int iD
+int iDim
+string_var sOut
+
+Begin Function { iDaysBack }
+  let iY := GameYear
+  let iM := GameMonth
+  let iD := GameDay
+
+  ; New Year quirk: the engine reports GameMonth 0 in January after the
+  ; year rollover (observed in-game, 2281 -> 2282) - normalize before
+  ; walking or current-month dates print as "00/..."
+  if iM < 1
+    let iM := 1
+  endif
+  if iD < 1
+    let iD := 1
+  endif
+
+  while iDaysBack > 0
+    if iDaysBack >= iD
+      ; Consume the rest of this month, land on the last day of the previous
+      let iDaysBack -= iD
+      let iM -= 1
+
+      if iM < 1
+        let iM := 12
+        let iY -= 1
+      endif
+
+      if iM == 2
+        if eval (iY % 4) == 0 && ((iY % 100) != 0 || (iY % 400) == 0)
+          let iDim := 29
+        else
+          let iDim := 28
+        endif
+      elseif iM == 4 || iM == 6 || iM == 9 || iM == 11
+        let iDim := 30
+      else
+        let iDim := 31
+      endif
+
+      let iD := iDim
+    else
+      let iD -= iDaysBack
+      let iDaysBack := 0
+    endif
+  loop
+
+  let sOut := ""
+
+  if iM < 10
+    let sOut += "0"
+  endif
+  let sOut += $iM + "/"
+
+  if iD < 10
+    let sOut += "0"
+  endif
+  let sOut += $iD + "/" + $iY
+
+  SetFunctionValue $sOut
+End
