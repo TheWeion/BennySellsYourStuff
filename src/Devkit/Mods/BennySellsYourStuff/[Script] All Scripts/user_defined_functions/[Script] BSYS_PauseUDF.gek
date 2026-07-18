@@ -9,6 +9,8 @@ Create: BSYS_PauseUDF
 
 float fNow
 float fLast
+int iRows
+int iRowIdx
 
 Begin Function {}
   if Player.AuxVarGetFlt "_BSYS_fStartDay" == 0
@@ -25,6 +27,25 @@ Begin Function {}
   ; never banks; a backward jump rebases the same way, keeping the anchors
   ; consistent with the new "now" instead of stranded in the future
   if fNow != fLast
+    ; Ledger stamps are absolute - pin them along with the anchors so the
+    ; book's day numbers stay consistent across the pause
+    let iRows := Player.AuxVarSize "_BSYS_LedgerDay"
+    let iRowIdx := 0
+
+    while iRowIdx < iRows
+      Player.AuxVarSetFlt "_BSYS_LedgerDay" ((Player.AuxVarGetFlt "_BSYS_LedgerDay" iRowIdx) + (fNow - fLast)) iRowIdx
+      let iRowIdx += 1
+    loop
+
+    ; Pin the churn stamps too, or disabled time banks toward migration
+    let iRows := Player.AuxVarSize "_BSYS_LedgerMoveDay"
+    let iRowIdx := 0
+
+    while iRowIdx < iRows
+      Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" ((Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iRowIdx) + (fNow - fLast)) iRowIdx
+      let iRowIdx += 1
+    loop
+
     Player.AuxVarSetFlt "_BSYS_fStartDay" (Player.AuxVarGetFlt "_BSYS_fStartDay" + (fNow - fLast))
     Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
   endif

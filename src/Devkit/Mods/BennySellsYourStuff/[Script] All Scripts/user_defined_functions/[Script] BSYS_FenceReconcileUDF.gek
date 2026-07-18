@@ -1,0 +1,217 @@
+; ============================================================================
+; BSYS_FenceReconcileUDF
+; ============================================================================
+; The fencing network's churn pass. Called from EndCheckUDF (during the
+; spree) and InitLoadUDF (every load, including ended saves); self-gates to
+; one pass per quarter game-day.
+;
+; Per tracked row (state 0 = at first vendor, 1 = migrated):
+;   - past fGoneDays since the SALE it leaves the game world (state 2),
+;     regardless of the migrate window - unless unique-protected
+;     (bProtectUniques: flagged unique by a mod via JIP ToggleItemUnique,
+;     or unit value >= iUniqueValueFloor when the floor is > 0), which
+;     keeps migrating forever;
+;   - otherwise, once fMigrateDays have passed since it last moved, it
+;     trades onward to a new fence anywhere in the fully-widened network
+;     (the current chest's copy is pulled if still there - a merchant
+;     restock may already have eaten it, which IS the churn).
+;
+; State 3 (bought back, set by BSYS_BoughtBackUDE) rows are never touched,
+; so a recovered item can't be duplicated back into the network.
+; ============================================================================
+
+Create: BSYS_FenceReconcileUDF
+
+ref rItem
+ref rCur
+ref rNew
+ref rChest
+ref rNewChest
+int iNum
+int iIdx
+int iState
+int iQty
+int iHave
+int iTake
+int iCatBit
+int iType
+int iMask
+int bProt
+int bProtHit
+int iFloor
+int bDebug
+float fNow
+float fMigrate
+float fGone
+float fLCK
+
+Begin Function {}
+  if (Goo1.AuxVarGetFlt "*_BSYS" 26) == 0 ; FencingNetwork:bPhysicalFencing
+    return
+  endif
+
+  let fNow := GetGameDaysPassed
+
+  ; Self-heal a future-stranded throttle stamp (backward console clock
+  ; jump on an ENDED save - no SimUDF rebase runs there): shift the churn
+  ; stamps by the deficit and let this pass proceed
+  if fNow < (Player.AuxVarGetFlt "_BSYS_fLastRecon")
+    let iNum := Player.AuxVarSize "_BSYS_LedgerMoveDay"
+    let iIdx := 0
+
+    while iIdx < iNum
+      Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" ((Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iIdx) - ((Player.AuxVarGetFlt "_BSYS_fLastRecon") - fNow)) iIdx
+      ; Sale-day stamps must shift with the same deficit (mirrors the
+      ; SimUDF rebase) or the fGoneDays horizon stretches by the jump
+      Player.AuxVarSetFlt "_BSYS_LedgerDay" ((Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx) - ((Player.AuxVarGetFlt "_BSYS_fLastRecon") - fNow)) iIdx
+      let iIdx += 1
+    loop
+
+    Player.AuxVarSetFlt "_BSYS_fLastRecon" (fNow - 1)
+  endif
+
+  if (fNow - (Player.AuxVarGetFlt "_BSYS_fLastRecon")) < 0.25
+    return
+  endif
+  Player.AuxVarSetFlt "_BSYS_fLastRecon" fNow
+
+  let fMigrate := Goo1.AuxVarGetFlt "*_BSYS" 27 ; fMigrateDays
+  let fGone := Goo1.AuxVarGetFlt "*_BSYS" 28    ; fGoneDays
+  let bProt := Goo1.AuxVarGetFlt "*_BSYS" 29    ; bProtectUniques
+  let iFloor := Goo1.AuxVarGetFlt "*_BSYS" 30   ; iUniqueValueFloor
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+  let fLCK := Player.GetPermanentActorValue Luck
+
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+  let iIdx := 0
+
+  while iIdx < iNum
+    let iState := Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx
+
+    if iState >= 2 ; gone or recovered
+      let iIdx += 1
+      continue
+    endif
+
+    let rCur := Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx
+
+    if rCur == 0 || rCur == BennyREF ; nothing physical to churn
+      let iIdx += 1
+      continue
+    endif
+
+    let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+    let iQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+    let rChest := rCur.GetMerchantContainer
+
+    ; Pull whatever of this row is still at the current fence (a restock
+    ; may already have eaten it; counts are fuzzy when the vendor natively
+    ; stocks the same form - erring on the low side just leaves stock)
+    let iTake := 0
+
+    if rChest
+      let iHave := rChest.GetItemCount rItem
+
+      if iHave > 0
+        let iTake := iHave
+
+        if iTake > iQty
+          let iTake := iQty
+        endif
+      endif
+    endif
+
+    ; Past the horizon it leaves the Mojave - unless it's protected:
+    ; anything a mod flagged unique (JIP ToggleItemUnique - the game data
+    ; itself never marks uniques, and BSYS only reads the flag), plus the
+    ; unit-value floor as the vanilla-unique heuristic (0 = floor off)
+    let bProtHit := 0
+
+    if bProt
+      let bProtHit := IsItemUnique rItem
+
+      if bProtHit == 0 && iFloor > 0
+        if eval ((Player.AuxVarGetFlt "_BSYS_LedgerVal" iIdx) / iQty) >= iFloor
+          let bProtHit := 1
+        endif
+      endif
+    endif
+
+    if (fNow - (Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx)) >= fGone && bProtHit == 0
+      if iTake > 0
+        rChest.RemoveItem rItem iTake 1
+      endif
+
+      Player.AuxVarSetFlt "_BSYS_LedgerState" 2 iIdx
+
+      if bDebug
+        Print "BSYS - Fence churn: " + (LNGetName rItem) + " is gone from the Mojave"
+      endif
+
+      let iIdx += 1
+      continue
+    endif
+
+    ; Not yet due to trade onward (checked AFTER the horizon: departure
+    ; must not wait out a migrate window longer than fGoneDays)
+    if (fNow - (Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iIdx)) < fMigrate
+      let iIdx += 1
+      continue
+    endif
+
+    ; Churn: the goods trade onward to another fence, full network width
+    let iType := GetType rItem
+
+    if iType == 40
+      let iCatBit := 1
+    elseif iType == 24
+      let iCatBit := 4
+    elseif iType == 47
+      let iCatBit := 8
+    elseif iType == 41
+      let iCatBit := 16
+    elseif iType == 103
+      let iCatBit := 64
+    else
+      let iCatBit := 32
+    endif
+
+    let rNew := Call BSYS_VendorPickUDF iCatBit 99 fLCK
+
+    ; "Trades onward to ANOTHER merchant" - same pick means no move this
+    ; cycle; MoveDay stays, so it re-rolls on the next pass
+    if rNew == rCur
+      let rNew := 0
+    endif
+
+    if rNew
+      let rNewChest := rNew.GetMerchantContainer
+
+      if rNewChest
+        if iTake > 0
+          rChest.RemoveItem rItem iTake 1
+        endif
+
+        rNewChest.AddItemAlt rItem iQty
+        Player.AuxVarSetRef "_BSYS_LedgerCurVendor" rNew iIdx
+        Player.AuxVarSetFlt "_BSYS_LedgerState" 1 iIdx
+        Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" fNow iIdx
+
+        ; Bought intel goes stale the moment the goods move on: clear the
+        ; revealed bit AND the fail locks (new location, new conversation)
+        ; but keep bit 8 (intel bought once - the ledger's intel appendix
+        ; keeps the paid-for snapshot through churn) and bit 16 (the
+        ; fence already brought this row up once)
+        let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+        let iMask := iMask & 24
+        Player.AuxVarSetFlt "_BSYS_LedgerIntel" iMask iIdx
+
+        if bDebug
+          Print "BSYS - Fence churn: " + (LNGetName rItem) + " moved on to " + (LNGetName rNew)
+        endif
+      endif
+    endif
+
+    let iIdx += 1
+  loop
+End

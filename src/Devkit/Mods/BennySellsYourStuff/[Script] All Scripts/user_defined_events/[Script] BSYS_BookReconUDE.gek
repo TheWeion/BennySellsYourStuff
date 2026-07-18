@@ -1,0 +1,63 @@
+; ============================================================================
+; BSYS_BookReconUDE
+; ============================================================================
+; Dress the ledger book instance. Runs at creation (BSYS_BennyLedgerGenUDF)
+; and on every save load (SetOnInstanceReconstruct, key "BSYS", registered
+; at Boot): Plugins+ restores the instance AND its placement - inventory
+; entry or dropped world ref - from the co-save, but every cosmetic on it
+; (name/model/icon/description - all JIP or xNVSE runtime edits) is
+; memory-only. So each time it comes back, redress it.
+;
+; NEVER add the book here: placement is Plugins+'s job, and a scripted
+; re-add duplicates it (or yanks a deliberately dropped copy back into an
+; inventory). The one scripted add is the initial placement at creation.
+; ============================================================================
+
+Create: BSYS_BookReconUDE
+
+ref rInst
+string_var sDesc
+string_var sName
+int iIdx
+int iNum
+
+Begin Function { rInst }
+  ; The book text was chunked into an indexed AuxVar (AuxVarSetStr caps
+  ; each element at 8191 chars) - reassemble it
+  let sDesc := ""
+  let iNum := Player.AuxVarSize "_BSYS_sBookDesc"
+  let iIdx := 0
+
+  while iIdx < iNum
+    let sDesc += Player.AuxVarGetStr "_BSYS_sBookDesc" iIdx
+    let iIdx += 1
+  loop
+
+  ; No text = this save never wrote a ledger; leave the instance naked
+  if (sv_Length sDesc) == 0
+    return
+  endif
+
+  ; Presentation lives HERE, not in the save: BMR's layout file plus the
+  ; rendered face (2 = glow-free Monofonto_Large; the HTML book renderer
+  ; defaults to face 1 and only honors <font face=N> tags, never the
+  ; tile's font trait). Books written by older versions stored the prefix
+  ; in the text itself - leave those as they are.
+  if eval (sv_Find "[Path=" sDesc) != 0
+    let sDesc := "[Path=BSYSLedger.xml]<font face=2>" + $sDesc
+  endif
+
+  ; Skill None makes Book Menu Restored open the reading menu on activate
+  SetBookSkill rInst -1
+  SetFormDescription rInst ($sDesc)
+  let sName := Call BSYS_TranslateUDF "BSYS_ledgerTitle"
+  SetName ($sName) rInst
+  SetModelPath "clutter\books\bookgeneric03.nif" rInst
+  SetTexturePath "Interface\Icons\PipboyImages\Items\items_skill_books.dds" rInst
+
+  ; Watch it move (loot, stash, barter - every vanilla add path), so the
+  ; owner on record is always whoever holds it at save time
+  SetEventHandler "ShowOff:OnAdd" BSYS_BookMovedUDE "first"::rInst
+
+  Goo1.AuxVarSetRef "*_BSYS_rBook" rInst
+End

@@ -10,6 +10,7 @@
 Create: BSYS_GameScript
 
 int bEnabled
+int iGap
 
 BeginAlt GameLoop
   let bEnabled := Goo1.AuxVarGetFlt "*_BSYS" 0 ; Main:bEnabled
@@ -26,6 +27,23 @@ BeginAlt GameLoop
   endif
 
   if GetActiveMenuMode == 0
+    ; TWO consecutive menu-free frames = any conversation is truly over:
+    ; release the greeting claim and the captured partner. The debounce
+    ; matters - a dialogue<->barter swap could expose a single menu-free
+    ; frame, and releasing there would resurrect the repeat-greeting bug
+    let iGap := (Goo1.AuxVarGetFlt "*_BSYS_iNoMenuFrames") + 1
+
+    if iGap >= 2
+      if Goo1.AuxVarGetRef "*_BSYS_rGreetedNPC"
+        Goo1.AuxVarErase "*_BSYS_rGreetedNPC"
+      endif
+      if Goo1.AuxVarGetRef "*_BSYS_rBarterVendor"
+        Goo1.AuxVarErase "*_BSYS_rBarterVendor"
+      endif
+    else
+      Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" iGap
+    endif
+
     Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" (Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" + (GetSecondsPassed / GetGlobalTimeMultiplier))
 
     if Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" >= 5
@@ -34,10 +52,16 @@ BeginAlt GameLoop
       if bEnabled
         if Goo1.AuxVarGetFlt "*_BSYS_bActive" == 1 && Player.AuxVarGetFlt "_BSYS_iEnded" == 0
           Call BSYS_EndCheckUDF
+        elseif Player.AuxVarGetFlt "_BSYS_iEnded"
+          ; The spree is over but the fencing network keeps trading -
+          ; the reconcile pass self-throttles to one run per quarter day
+          Call BSYS_FenceReconcileUDF
         endif
       else
         Call BSYS_PauseUDF
       endif
     endif
+  elseif Goo1.AuxVarGetFlt "*_BSYS_iNoMenuFrames"
+    Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" 0
   endif
 End

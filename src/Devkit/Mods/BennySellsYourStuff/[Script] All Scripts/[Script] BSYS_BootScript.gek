@@ -63,6 +63,18 @@ BeginAlt Boot
   ar_Append aCfg (ar_List "Fencing:bFenceKeys" 2 0 0)          ; 23
   ar_Append aCfg (ar_List "Fencing:bFenceOther" 2 0 1)         ; 24
   ar_Append aCfg (ar_List "Fencing:bSpendCaps" 2 0 1)          ; 25
+  ar_Append aCfg (ar_List "FencingNetwork:bPhysicalFencing" 2 0 1) ; 26
+  ar_Append aCfg (ar_List "FencingNetwork:fMigrateDays" 0 0 7)     ; 27
+  ar_Append aCfg (ar_List "FencingNetwork:fGoneDays" 0 0 28)       ; 28
+  ar_Append aCfg (ar_List "FencingNetwork:bProtectUniques" 2 0 1)  ; 29
+  ar_Append aCfg (ar_List "FencingNetwork:iUniqueValueFloor" 1 0 1500) ; 30
+  ar_Append aCfg (ar_List "FencingNetwork:fRecoverCapsPctBase" 0 0 25) ; 31
+  ar_Append aCfg (ar_List "FencingNetwork:fRecoverCapsPctPerLuck" 0 0 3) ; 32
+  ar_Append aCfg (ar_List "FencingNetwork:fInfoCostBase" 0 0 100)  ; 33
+  ar_Append aCfg (ar_List "FencingNetwork:iInfoSpeechCheck" 1 1 50) ; 34
+  ar_Append aCfg (ar_List "FencingNetwork:iInfoStrCheck" 1 1 7)    ; 35
+  ar_Append aCfg (ar_List "FencingNetwork:iInfoKarmaHit" 1 0 50)   ; 36
+  ar_Append aCfg (ar_List "FencingNetwork:bShowCheckValues" 2 0 1) ; 37
 
   ; --- Pass 1: load every slot from the INI, in table (= slot) order ---
   let iSlot := 0
@@ -76,8 +88,8 @@ BeginAlt Boot
   Loop
 
   ; [DangerZone] settings: uninstall flag. Its own scalar session var, NOT
-  ; slot 26 of the config array - indexed AuxVars grow append-only, so a
-  ; first write at index 26 on a fresh var lands out of range and silently
+  ; a slot of the config array - indexed AuxVars grow append-only, so a
+  ; first write past the end of a fresh var lands out of range and silently
   ; no-ops (and *BSYS without the underscore is a separate var from *_BSYS)
   Goo1.AuxVarSetFlt "*BSYS" (GetINIFloat_Cached "DangerZone:bUninstall" "BennySellsYourStuff/Config.ini" 0) 0
 
@@ -138,6 +150,16 @@ BeginAlt Boot
   Goo1.AuxVarSetFlt "*_BSYS_bActive" 0
   Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
   Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+  Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
+  Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" 0
+  Goo1.AuxVarErase "*_BSYS_rGreetedNPC"
+  Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 0
+
+  ; Benny's ledger book: Plugins+ rebuilds "BSYS"-keyed instances from the
+  ; co-save on every save load, but naked - the cosmetics and inventory
+  ; placement are runtime-only. BSYS_BookReconUDE re-dresses and re-homes
+  ; each one as it comes back.
+  SetOnInstanceReconstruct 1 BSYS_BookReconUDE "BSYS"
 
   ; --- Translations ---
   ; Resolve the correct translation file once per launch,

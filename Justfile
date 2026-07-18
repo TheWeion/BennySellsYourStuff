@@ -27,6 +27,10 @@ bbcode source="README.md":
 # Everything a release drop needs: zips + the Nexus description.
 dist: build bbcode
 
+# Minify .gek scripts under a staged dir in place (build already does this for the zips).
+minify dir:
+    python tools/minify_gek.py "{{dir}}"
+
 # Remove all local build output.
 clean:
     rm -rf dist && mkdir -p dist

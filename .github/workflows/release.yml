@@ -13,7 +13,8 @@ name: Release
 #                          the first release or force a specific version.
 #
 # Artifacts (both rooted so the zip contents drop straight into Data\):
-#   PROJECT_NAME-Main-vX.Y.Z.zip   -> everything under src/
+#   PROJECT_NAME-Main-vX.Y.Z.zip   -> everything under src/, .gek scripts
+#                                     minified (comments/blank lines stripped)
 #   PROJECT_NAME-Config-vX.Y.Z.zip -> just src/Config, for updating
 #                                     settings without touching scripts
 #
@@ -124,6 +125,10 @@ jobs:
           Copy-Item src $mainStage -Recurse
           New-Item -ItemType Directory -Force $configStage | Out-Null
           Copy-Item src/Config "$configStage/Config" -Recurse
+
+          # Ship minified scripts (comments/blank lines/trailing spaces
+          # stripped); the checked-out src/ tree is untouched.
+          python3 tools/minify_gek.py $mainStage
 
           $kitInfo = "$mainStage/Devkit/Mods/$name/KitInfo.ini"
           if (-not (Test-Path $kitInfo)) { throw "KitInfo.ini not found at $kitInfo" }

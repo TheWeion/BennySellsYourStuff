@@ -1,0 +1,100 @@
+; ============================================================================
+; BSYS_IntelCostUDF
+; ============================================================================
+; Single source of truth for what a fence charges for intel on a ledger
+; row. iMode 0 returns the CAPS cost, iMode 1 the SPEECH requirement -
+; both the box labels (IntelPickUDE) and the actual charge (IntelPayUDE)
+; call here, so they can never disagree.
+;
+; Scaling:
+;   - Item value (LedgerVal): factor value/500, clamped 0.5x..4x. Pricier
+;     gear = pricier gossip and a harder pitch.
+;   - Area/faction reputation of the ORIGINAL fence (fame minus infamy,
+;     clamped +/-10): liked locals talk cheaper and easier.
+;   - Player Barter (caps only): up to -20% at Barter 100.
+;   Speech req = iInfoSpeechCheck + value/100 - 2*rep, clamped 10..100.
+;   Caps = fInfoCostBase * valueFactor * barter * rep, floor 10.
+; ============================================================================
+
+Create: BSYS_IntelCostUDF
+
+ref rVendor
+ref rRep
+int iRow
+int iMode
+int iNet
+int iOut
+float fVal
+float fFactor
+float fCost
+
+Begin Function { iRow, iMode }
+  ; UNIT value, not lot value - a 20-stack of cheap ammo shouldn't price
+  ; like a unique rifle (LedgerVal is qty x unit; LedgerQty >= 1 always)
+  let fVal := (Player.AuxVarGetFlt "_BSYS_LedgerVal" iRow) / (Player.AuxVarGetFlt "_BSYS_LedgerQty" iRow)
+  let fFactor := fVal / 500
+
+  if fFactor < 0.5
+    let fFactor := 0.5
+  endif
+  if fFactor > 4
+    let fFactor := 4
+  endif
+
+  ; Local reputation of the fence's patch (fame - infamy)
+  let rVendor := Player.AuxVarGetRef "_BSYS_LedgerVendor" iRow
+  let rRep := 0
+
+  if rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E3") || rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E2") || rVendor == (GetFormFromMod "FalloutNV.esm" "10D8E7") || rVendor == (GetFormFromMod "FalloutNV.esm" "117E10")
+    let rRep := GetFormFromMod "FalloutNV.esm" "129A7A" ; Freeside
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "115C5F") || rVendor == (GetFormFromMod "FalloutNV.esm" "ED4DD")
+    let rRep := GetFormFromMod "FalloutNV.esm" "124AD1" ; Followers
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "116598")
+    let rRep := GetFormFromMod "FalloutNV.esm" "118F61" ; The Strip
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "8CD28") || rVendor == (GetFormFromMod "FalloutNV.esm" "84207")
+    let rRep := GetFormFromMod "FalloutNV.esm" "129A79" ; Novac
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "104C79") || rVendor == (GetFormFromMod "FalloutNV.esm" "104C6D")
+    let rRep := GetFormFromMod "FalloutNV.esm" "104C22" ; Goodsprings
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "E2882")
+    let rRep := GetFormFromMod "FalloutNV.esm" "F2406"  ; Primm
+  elseif rVendor == (GetFormFromMod "FalloutNV.esm" "140DA9")
+    let rRep := GetFormFromMod "FalloutNV.esm" "F43DE"  ; NCR (Mojave Outpost)
+  endif
+
+  let iNet := 0
+
+  if rRep
+    let iNet := (GetReputation rRep 1) - (GetReputation rRep 0)
+
+    if iNet > 10
+      let iNet := 10
+    endif
+    if iNet < -10
+      let iNet := -10
+    endif
+  endif
+
+  if iMode == 1
+    ; Speech requirement
+    let iOut := (Goo1.AuxVarGetFlt "*_BSYS" 34) + (Floor (fVal / 100)) - (iNet * 2)
+
+    if iOut < 10
+      let iOut := 10
+    endif
+    if iOut > 100
+      let iOut := 100
+    endif
+  else
+    ; Caps cost: value factor, then Barter and reputation discounts
+    let fCost := (Goo1.AuxVarGetFlt "*_BSYS" 33) * fFactor
+    let fCost := fCost * (1 - ((Player.GetActorValue Barter) * 0.002))
+    let fCost := fCost * (1 - (iNet * 0.02))
+    let iOut := Floor fCost
+
+    if iOut < 10
+      let iOut := 10
+    endif
+  endif
+
+  SetFunctionValue iOut
+End
