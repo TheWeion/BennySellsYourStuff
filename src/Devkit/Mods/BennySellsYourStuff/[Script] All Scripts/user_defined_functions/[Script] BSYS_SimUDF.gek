@@ -42,6 +42,8 @@ float fChunk
 float fWeeks
 float fEscal
 float fAttCarry
+float fCarrySnap
+float fSaleDay
 float fCapsCarry
 float fLuckFactor
 
@@ -49,6 +51,8 @@ int iToSpend
 int iAvail
 int iSpentNow
 int iAttemptsDone
+int iRows
+int iRowIdx
 int bDebug
 int bSpendCaps
 float fWindow
@@ -77,6 +81,27 @@ Begin Function {}
   ; the clock catches its old high-water mark. Against the RAW clock, before
   ; the freeze clamp below, so a deferred-end clamp can't look like a jump.
   if fNow < fFrom
+    ; The ledger stamps are absolute - shift them with the anchors or the
+    ; book's day numbers would drift apart by the jump size
+    let iRows := Player.AuxVarSize "_BSYS_LedgerDay"
+    let iRowIdx := 0
+
+    while iRowIdx < iRows
+      Player.AuxVarSetFlt "_BSYS_LedgerDay" ((Player.AuxVarGetFlt "_BSYS_LedgerDay" iRowIdx) - (fFrom - fNow)) iRowIdx
+      let iRowIdx += 1
+    loop
+
+    ; The churn stamps are absolute too - and the reconcile throttle
+    let iRows := Player.AuxVarSize "_BSYS_LedgerMoveDay"
+    let iRowIdx := 0
+
+    while iRowIdx < iRows
+      Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" ((Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iRowIdx) - (fFrom - fNow)) iRowIdx
+      let iRowIdx += 1
+    loop
+
+    Player.AuxVarSetFlt "_BSYS_fLastRecon" ((Player.AuxVarGetFlt "_BSYS_fLastRecon") - (fFrom - fNow))
+
     let fStart := fStart - (fFrom - fNow)
     Player.AuxVarSetFlt "_BSYS_fStartDay" fStart
     Player.AuxVarSetFlt "_BSYS_fLastSimDay" fNow
@@ -147,9 +172,13 @@ Begin Function {}
 
     ; Sale attempts - CHA finds the buyers
     let fAttCarry += fBaseRate * (0.5 + (fEffCHA / 10)) * fEscal * fChunk
+    let fCarrySnap := fAttCarry
 
     while fAttCarry >= 1 && iGuard > 0 && (Goo1.AuxVarGetFlt "*_BSYS_bSafeDry") == 0
-      Call BSYS_TrySellUDF fEffINT fEffCHA fEffLCK fPlayerLCK fWeeks
+      ; Spread this chunk's attempts across it in order, so ledger
+      ; timestamps stay chronological instead of piling on the chunk edge
+      let fSaleDay := fCursor + (fChunk * ((fCarrySnap - fAttCarry) / fCarrySnap))
+      Call BSYS_TrySellUDF fEffINT fEffCHA fEffLCK fPlayerLCK fWeeks fSaleDay
       let fAttCarry -= 1
       let iGuard -= 1
       let iAttemptsDone += 1
