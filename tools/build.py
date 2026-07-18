@@ -8,6 +8,9 @@ tree with no tag or push - mirroring the "Package" step in
     <name>-Main-v<ver>.zip    - everything under src/, KitInfo.ini stamped
     <name>-Config-v<ver>.zip  - just src/Config, for a settings-only update
 
+The staged .gek scripts are minified (comments/blank lines/trailing spaces
+stripped) via tools/minify_gek.py; the sources under src/ are untouched.
+
 The <name> is the repo's root folder name (also the KitInfo mod folder).
 
 Both zips are rooted so their contents drop straight into Data\\.
@@ -26,6 +29,8 @@ import argparse
 import shutil
 import sys
 from pathlib import Path
+
+import minify_gek
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = ROOT.name  # the mod name is the repo's root folder name
@@ -80,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(SRC, main_stage)
     stamp_version(main_stage / KIT_INFO_REL, version)
     print(f"  Stamped KitInfo.ini -> Version: {version}")
+    changed, saved = minify_gek.minify_tree(main_stage)
+    print(f"  Minified {changed} .gek scripts ({saved:,} bytes removed)")
 
     # ---- Config artifact: just src/Config --------------------------------
     (config_stage).mkdir(parents=True, exist_ok=True)
