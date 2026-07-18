@@ -1,0 +1,56 @@
+; ============================================================================
+; BSYS_BoughtBackUDE
+; ============================================================================
+; xNVSE "OnSell" handler (fires per traded stack when a barter deal is
+; accepted, both directions). When the PLAYER BUYS an item that matches a
+; tracked ledger row at that merchant, the row is marked state 3
+; (recovered) so the churn pass never duplicates it back into the network.
+; Row-level granularity: buying any unit recovers the whole row - leftover
+; units simply stay in the vendor's stock. (The ledger-book scribble for
+; recovered rows lands in a later phase.)
+; ============================================================================
+
+Create: BSYS_BoughtBackUDE
+
+ref rItem
+ref rSeller
+int iNum
+int iIdx
+
+Begin Function { rItem, rSeller }
+  if rSeller == PlayerREF ; the player SOLD something - not our concern
+    return
+  endif
+
+  ; rItem is always the BASE form - that's why GetSoldItemInvRef exists as
+  ; a separate command; calling GetBaseObject here errors on every stack
+
+  let iNum := Player.AuxVarSize "_BSYS_LedgerForm"
+  let iIdx := 0
+
+  while iIdx < iNum
+    if (Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx) <= 1
+      if (Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx) == rItem && (Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iIdx) == rSeller
+        Player.AuxVarSetFlt "_BSYS_LedgerState" 3 iIdx
+
+        if Goo1.AuxVarGetFlt "*_BSYS" 1
+          Print "BSYS - Bought back: " + (LNGetName rItem)
+        endif
+
+        ; Scribble the ledger: rebuild the book text with this row grayed
+        ; and re-dress the live instance. Mid-spree recoveries need no
+        ; rebuild - the book is first written at spree end anyway.
+        ; (fBookEnd is 0 on saves that ended before it existed - their
+        ; book stays static rather than gaining a broken duration line)
+        if Player.AuxVarGetFlt "_BSYS_iEnded" && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+          Call BSYS_BookWriteUDF (Player.AuxVarGetFlt "_BSYS_fBookEnd")
+          Call BSYS_BookReconUDE (Goo1.AuxVarGetRef "*_BSYS_rBook")
+        endif
+
+        return
+      endif
+    endif
+
+    let iIdx += 1
+  loop
+End
