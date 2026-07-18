@@ -97,7 +97,6 @@ Begin Function {}
     SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
     Call BSYS_FenceReconcileUDF
-    Call BSYS_NoteRefreshUDF
 
     if bDebug
       Print "BSYS - Spree already over on this save, staying inert"
@@ -175,9 +174,6 @@ Begin Function {}
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
   SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
-
-  ; Revealed-location notes are memory-only clones - rebuild them
-  Call BSYS_NoteRefreshUDF
 
   Print "BSYS - Active. Humbled state and end conditions will be checked momentarily..."
 

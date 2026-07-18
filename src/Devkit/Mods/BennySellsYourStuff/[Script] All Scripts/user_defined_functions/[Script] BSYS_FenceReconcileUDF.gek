@@ -199,8 +199,9 @@ Begin Function {}
 
         ; Bought intel goes stale the moment the goods move on: clear the
         ; revealed bit AND the fail locks (new location, new conversation)
-        ; but keep bit 8 (note already granted - re-grant stays silent) and
-        ; bit 16 (the fence already brought this row up once)
+        ; but keep bit 8 (intel bought once - the ledger's intel appendix
+        ; keeps the paid-for snapshot through churn) and bit 16 (the
+        ; fence already brought this row up once)
         let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
         let iMask := iMask & 24
         Player.AuxVarSetFlt "_BSYS_LedgerIntel" iMask iIdx

@@ -4,8 +4,9 @@
 ; Debug-only fencing network dump, printed to the console (consoleout.txt)
 ; on every load while Main:bDebug is on. One line per tracked row: state,
 ; quantity, item, current holder, days since it last moved, intel mask
-; (1 revealed, 2 persuade-locked, 4 intimidate-locked, 8 note granted,
-; 16 brought up by the fence at least once).
+; (1 revealed, 2 persuade-locked, 4 intimidate-locked, 8 intel bought at
+; least once - keeps the ledger's intel line through churn, 16 brought
+; up by the fence at least once).
 ; ============================================================================
 
 Create: BSYS_DebugDumpUDF

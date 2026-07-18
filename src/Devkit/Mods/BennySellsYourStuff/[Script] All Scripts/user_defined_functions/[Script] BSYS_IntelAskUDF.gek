@@ -40,7 +40,7 @@ Begin Function {}
   let sStat := Call BSYS_TranslateUDF "BSYS_intelSpeech"
 
   if eval (iMask & 2)
-    let sBox += "|" + $sFail + " " + $sLabel
+    let sBox += "|" + " [" + $sFail + "] " + $sLabel
   elseif Goo1.AuxVarGetFlt "*_BSYS" 37 ; bShowCheckValues
     let iCur := Player.GetActorValue Speech
     let iChk := Call BSYS_IntelCostUDF iRow 1
@@ -54,7 +54,7 @@ Begin Function {}
   let sStat := Call BSYS_TranslateUDF "BSYS_intelStrength"
 
   if eval (iMask & 4)
-    let sBox += "|" + $sFail + " " + $sLabel
+    let sBox += "|" + " [" + $sFail + "] " + $sLabel
   elseif Goo1.AuxVarGetFlt "*_BSYS" 37 ; bShowCheckValues
     let iCur := Player.GetPermanentActorValue Strength
     let iChk := Goo1.AuxVarGetFlt "*_BSYS" 35 ; iInfoStrCheck

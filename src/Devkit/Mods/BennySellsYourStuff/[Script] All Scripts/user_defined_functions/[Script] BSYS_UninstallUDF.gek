@@ -63,24 +63,6 @@ Begin Function {}
     Goo1.AuxVarErase "*_BSYS_rBook"
   endif
 
-  ; The per-item location notes die with the mod too (they're TempClone
-  ; session forms recreated each load - RemoveNote is silent)
-  let iCount := Goo1.AuxVarSize "*_BSYS_IntelNoteRef"
-  let iNoteIdx := 0
-
-  while iNoteIdx < iCount
-    let rNote := Goo1.AuxVarGetRef "*_BSYS_IntelNoteRef" iNoteIdx
-
-    if rNote
-      RemoveNote rNote
-    endif
-
-    let iNoteIdx += 1
-  loop
-
-  Goo1.AuxVarErase "*_BSYS_IntelNoteRef"
-  Goo1.AuxVarErase "*_BSYS_IntelNoteRow"
-
   ; --- 3. Full wipe, sentinel included ---
   Call BSYS_CleanupUDF 1
 

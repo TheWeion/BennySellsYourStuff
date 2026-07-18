@@ -11,9 +11,9 @@
 ;   Pay        - the scaled price (BSYS_IntelCostUDF)
 ; A FAILED check (or empty pockets) re-opens the same item's options with
 ; the failed one marked [Failed] - the player may want another approach.
-; Success snapshots the location (LedgerIntelVendor), mints the Pip-Boy
-; note and returns to the item list; only Never mind goes back to it
-; empty-handed.
+; Success snapshots the location (LedgerIntelVendor), rewrites the
+; ledger's intel appendix (if the book exists yet) and returns to the
+; item list; only Never mind goes back to it empty-handed.
 ; ============================================================================
 
 Create: BSYS_IntelPayUDE
@@ -137,8 +137,16 @@ Begin Function { iButton }
   let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iRow
 
   if eval (iMask & 1) == 0
-    Player.AuxVarSetFlt "_BSYS_LedgerIntel" (iMask + 1) iRow
+    let iMask := iMask + 1
   endif
+
+  ; Bit 8 = intel bought at least once. Churn clears the revealed bit,
+  ; but the ledger's intel appendix keeps the paid-for snapshot via bit 8
+  if eval (iMask & 8) == 0
+    let iMask := iMask + 8
+  endif
+
+  Player.AuxVarSetFlt "_BSYS_LedgerIntel" iMask iRow
 
   let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iRow
   let rCur := Player.AuxVarGetRef "_BSYS_LedgerCurVendor" iRow
@@ -162,7 +170,14 @@ Begin Function { iButton }
 
   MessageExAlt 6 ($sMsg)
 
-  ; Mint the location note, then back to the list for the next item
-  Call BSYS_NoteRefreshUDF
+  ; Write it onto the ledger's intel appendix if the book exists yet -
+  ; pre-end reveals live in the arrays until the ledger is written at
+  ; spree end. (Same rebuild guard as BSYS_BoughtBackUDE)
+  if Player.AuxVarGetFlt "_BSYS_iEnded" && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+    Call BSYS_BookWriteUDF (Player.AuxVarGetFlt "_BSYS_fBookEnd")
+    Call BSYS_BookReconUDE (Goo1.AuxVarGetRef "*_BSYS_rBook")
+  endif
+
+  ; Back to the list for the next item
   Call BSYS_IntelListUDF 1
 End

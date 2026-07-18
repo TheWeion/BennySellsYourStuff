@@ -2,8 +2,13 @@
 ; BSYS_BookWriteUDF
 ; ============================================================================
 ; Builds the ledger book text from the per-sale rows and stores it in the
-; save. Called once by EndCheckUDF at spree end, before CleanupUDF erases
-; the row arrays.
+; save. Called by EndCheckUDF at spree end, and again on every post-end
+; buyback (BSYS_BoughtBackUDE) and intel reveal (BSYS_IntelPayUDE).
+;
+; The book ends with the INTEL APPENDIX: everything the fences told the
+; player, on its own page in the other hand (face 3), one line per row
+; whose intel was ever bought. Each line is the SNAPSHOT the fence sold
+; (LedgerIntelVendor) - churn does not update it; fresh intel does.
 ;
 ; Format is engine book-HTML (the only renderer that ever shows a BOOK's
 ; description is the book menu): <br> is the only line break it honors.
@@ -21,7 +26,10 @@ Create: BSYS_BookWriteUDF
 
 ref rItem
 ref rVendor
+ref rIntel
 string_var sText
+string_var sIntel
+string_var sEndLabel
 string_var sChunk
 string_var sDate
 string_var sAtLabel
@@ -42,7 +50,10 @@ int iHour
 int iMin
 int iLen
 int iState
+int iMask
+int iBudget
 int bTrunc
+int bIntelTrunc
 float fStart
 float fRef
 float fRowDay
@@ -81,12 +92,67 @@ Begin Function { fEndDay }
     let iIdx += 1
   loop
 
+  ; --- Intel appendix, built FIRST so the sale-entry budget below makes
+  ; room for it. Qualifier: intel ever bought (bit 1 = revealed now,
+  ; bit 8 = bought before churn staled it - the paid-for snapshot stays)
+  ; and a real snapshot vendor. The mask gate matters: old saves had live
+  ; vendors PADDED into never-revealed rows' LedgerIntelVendor, so the
+  ; snapshot alone proves nothing. Recovered rows drop out - nothing
+  ; left to chase ---
+  let sIntel := ""
+  let sEndLabel := Call BSYS_TranslateUDF "BSYS_intelRevealEnd"
+  let bIntelTrunc := 0
+  let iIdx := 0
+
+  while iIdx < iNum
+    ; The appendix carries its own cap so an enormous intel collection
+    ; can never crush the sale entries to nothing or push the combined
+    ; text past the ~16K SetFormDescription ceiling
+    if (sv_Length sIntel) > 7000
+      let bIntelTrunc := 1
+      break
+    endif
+
+    let iMask := Player.AuxVarGetFlt "_BSYS_LedgerIntel" iIdx
+    let iState := Player.AuxVarGetFlt "_BSYS_LedgerState" iIdx
+    let rIntel := Player.AuxVarGetRef "_BSYS_LedgerIntelVendor" iIdx
+
+    if eval ((iMask & 9) != 0) && (iState != 3) && (rIntel != 0) && (rIntel != BennyREF)
+      let rItem := Player.AuxVarGetRef "_BSYS_LedgerForm" iIdx
+      let iQty := Player.AuxVarGetFlt "_BSYS_LedgerQty" iIdx
+      let sIntel += $iQty + "x " + (LNGetName rItem) + " - " + $sEndLabel + " " + (LNGetName rIntel)
+      let sLoc := Call BSYS_VendorLocUDF rIntel
+
+      if (sv_Length sLoc) > 0
+        let sIntel += " " + $sInLabel + " " + $sLoc
+      endif
+
+      let sIntel += "<br>"
+    endif
+
+    let iIdx += 1
+  loop
+
+  if bIntelTrunc
+    let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerTruncated"
+    let sIntel += $sLabel + "<br>"
+  endif
+
+  ; The appendix opens on its own page, in the other hand (face 3 - the
+  ; same ink that scribbles out recovered entries)
+  if (sv_Length sIntel) > 0
+    let sLabel := Call BSYS_TranslateUDF "BSYS_intelTitle"
+    let sIntel := "<hr><font face=3>" + $sLabel + "<br><br>" + $sIntel + "</font><font face=2>"
+  endif
+
+  let iBudget := 15000 - (sv_Length sIntel)
+
   ; One line per sale: "02/20/2285 at 10:36 - 2x Scrap Metal (6 caps)"
   let iIdx := 0
   let bTrunc := 0
 
   while iIdx < iNum
-    if (sv_Length sText) > 15000
+    if (sv_Length sText) > iBudget
       let bTrunc := 1
       break
     endif
@@ -159,6 +225,9 @@ Begin Function { fEndDay }
   let sLabel := Call BSYS_TranslateUDF "BSYS_ledgerDuration"
   let sDur := Call BSYS_FormatDaysUDF (fEndDay - fStart)
   let sText += $sLabel + " " + $sDur
+
+  ; The intel appendix - the last page(s), after everything of Benny's
+  let sText += $sIntel
 
   ; Chunked store
   Player.AuxVarErase "_BSYS_sBookDesc"
