@@ -63,14 +63,20 @@ Begin Function {}
     let bHumbled := 0
     let aItems := rSafe.GetAllItems
 
-    ForEach aIter <- aItems
-      let rItem := *aIter
+    ; A never-touched safe (empty base, no container changes - the whole
+    ; DC leg of a TTW start) yields NO array at all, not an empty one:
+    ; the let silently fails and a bare ForEach would error every poll.
+    ; ar_Size is -1 on an invalid array, so this also means "not humbled"
+    if eval (ar_Size aItems) > 0
+      ForEach aIter <- aItems
+        let rItem := *aIter
 
-      if rItem != Caps001
-        let bHumbled := 1
-        break
-      endif
-    Loop
+        if rItem != Caps001
+          let bHumbled := 1
+          break
+        endif
+      Loop
+    endif
 
     if bHumbled
       Player.AuxVarSetFlt "_BSYS_fStartDay" fNow
