@@ -58,12 +58,15 @@ def git_next_version() -> str | None:
     under-count from develop, and commit ranges over-count (already-released
     commits re-appear). So content decides first: if src/ is identical to
     the baseline tag's, this tree IS that release - no bump. Otherwise bump
-    by the strongest Conventional Commit in <tag>..HEAD: BREAKING CHANGE
-    footer -> major (the action ignores the `type!:` shorthand - footer
-    only), feat -> minor, fix -> patch. That range can include released
-    commits (squash topology), so a preview of unreleased work may bump one
-    step higher than the release CI eventually cuts - a naming overshoot on
-    local previews only. Returns None when git/tags aren't available.
+    by the strongest Conventional Commit in <tag>..HEAD, judged the way the
+    CI analyzer judges: commit types from SUBJECT lines only, and major
+    only on an actual "BREAKING CHANGE:" footer line - a body merely
+    MENTIONING the phrase (like the commit documenting these rules) must
+    not count, and the action ignores the `type!:` shorthand entirely.
+    The range can include released commits (squash topology), so a preview
+    of unreleased work may bump one step higher than the release CI
+    eventually cuts - a naming overshoot on local previews only. Returns
+    None when git/tags aren't available.
     """
     def git(*args: str) -> subprocess.CompletedProcess[str]:
         try:
@@ -91,19 +94,23 @@ def git_next_version() -> str | None:
     if git("diff", "--quiet", tag, "--", "src").returncode == 0:
         return f"{major}.{minor}.{patch}"
 
-    log = git("log", f"{tag}..HEAD", "--pretty=%s%n%b")
-    if log.returncode != 0:
+    subjects = git("log", f"{tag}..HEAD", "--pretty=%s")
+    bodies = git("log", f"{tag}..HEAD", "--pretty=%b")
+    if subjects.returncode != 0 or bodies.returncode != 0:
         return None
 
     rank = 0  # 0 = no releasable commits, 1 = patch, 2 = minor, 3 = major
-    for line in log.stdout.splitlines():
-        if "BREAKING CHANGE" in line:
+    for line in bodies.stdout.splitlines():
+        if re.match(r"BREAKING[ -]CHANGE:", line):
             rank = 3
             break
-        if re.match(r"feat(\([^)]*\))?:", line):
-            rank = max(rank, 2)
-        elif re.match(r"fix(\([^)]*\))?:", line):
-            rank = max(rank, 1)
+
+    if rank < 3:
+        for line in subjects.stdout.splitlines():
+            if re.match(r"feat(\([^)]*\))?:", line):
+                rank = max(rank, 2)
+            elif re.match(r"fix(\([^)]*\))?:", line):
+                rank = max(rank, 1)
 
     if rank == 3:
         return f"{major + 1}.0.0"
