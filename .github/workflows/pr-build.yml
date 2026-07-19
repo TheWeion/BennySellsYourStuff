@@ -44,16 +44,19 @@ jobs:
         uses: actions/checkout@v7
         with:
           # Build the PR's actual head commit, not the synthetic merge commit,
-          # so the stamped hash matches what the author pushed.
+          # so the stamped hash matches what the author pushed. Full history:
+          # build.py derives the base version from tags + commits.
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
-      # PR version = the KitInfo base version + the PR head short hash,
-      # e.g. 1.0.0-a1b2c3d. build.py stamps KitInfo.ini and names the zips.
+      # PR version = the git-derived next version + the PR head short hash,
+      # e.g. 1.2.0-a1b2c3d - the same resolver `just build` uses locally.
+      # build.py stamps KitInfo.ini and names the zips.
       - name: Build PR artefact zips
         id: build
         shell: bash
@@ -61,8 +64,8 @@ jobs:
           name="$PROJECT_NAME"
           short_sha="$(git rev-parse --short=7 '${{ github.event.pull_request.head.sha }}')"
 
-          base="$(sed -n 's/^Version:[[:space:]]*//p' "src/Devkit/Mods/$name/KitInfo.ini" | head -n1)"
-          if [ -z "$base" ]; then echo "::error::No 'Version:' line in KitInfo.ini"; exit 1; fi
+          base="$(python tools/build.py --print-version)"
+          if [ -z "$base" ]; then echo "::error::Could not resolve a base version"; exit 1; fi
           version="${base}-${short_sha}"
 
           echo "Building $name v$version"

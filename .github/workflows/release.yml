@@ -18,9 +18,9 @@ name: Release
 #   PROJECT_NAME-Config-vX.Y.Z.zip -> just src/Config, for updating
 #                                     settings without touching scripts
 #
-# KitInfo.ini version is maintained independently in-repo and is NOT
-# overwritten by the release tag - the packaged KitInfo keeps whatever
-# Version value the developer committed.
+# The packaged KitInfo.ini is stamped with the release version, so the
+# shipped kit always reports the version it was released as (the in-repo
+# KitInfo Version is only a fallback for git-less local builds).
 #
 # Nexus Mods (main-branch pushes only): both zips are also pushed as new
 # versions of the existing files via Nexus-Mods/upload-action
@@ -107,10 +107,10 @@ jobs:
           if ($version) { Write-Output "Releasing $tag (version $version, prerelease=$prerelease)" }
           else { Write-Output "No releasable commits since the last tag - skipping." }
 
-      # Build the two mod-manager zips.  KitInfo.ini keeps its own Version
-      # (maintained by the developer in-repo) - it is NOT overwritten with
-      # the release tag version.  The zips are named after the release
-      # version so they sort correctly on the GitHub Releases page.
+      # Build the two mod-manager zips. The staged KitInfo.ini is stamped
+      # with the release version (matching tools/build.py locally) and the
+      # zips are named after it so they sort correctly on the GitHub
+      # Releases page.
       - name: Package
         if: steps.ver.outputs.version != ''
         id: pkg
@@ -132,8 +132,8 @@ jobs:
 
           $kitInfo = "$mainStage/Devkit/Mods/$name/KitInfo.ini"
           if (-not (Test-Path $kitInfo)) { throw "KitInfo.ini not found at $kitInfo" }
-          $kitVer = (Select-String -Path $kitInfo -Pattern '^Version:\s*(.+)$').Matches.Groups[1].Value
-          Write-Output "KitInfo.ini Version (unchanged): $kitVer"
+          (Get-Content $kitInfo) -replace '^Version:.*', "Version: $ver" | Set-Content $kitInfo
+          Write-Output "Stamped KitInfo.ini -> Version: $ver"
 
           Compress-Archive -Path "$mainStage/*"   -DestinationPath "$mainStage.zip"   -Force
           Compress-Archive -Path "$configStage/*" -DestinationPath "$configStage.zip" -Force
