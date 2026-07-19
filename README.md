@@ -182,6 +182,14 @@ Alternatively, set `bNoScriptRunnerCaching = 1` under `[Release]` in
 
 - Works with the TTW version of BHYSYS (the only one there is).
 - Anything that edits Benny's stats is automatically respected.
+- **Just Assorted Mods (JAM)**: the ledger keeps its Just Weapons Hweel
+  slot across save loads. (The book is rebuilt with a new form ID on every
+  load, which would normally leave the wheel pointing at a dead form; BSYS
+  tracks the slot and re-links it.) **Vanilla favourite hotkeys on the
+  ledger cannot be preserved** — every scripting command that could
+  re-apply one refuses book-type items, so the assignment is lost each
+  load no matter what. Put the ledger on the JAM wheel instead if you want
+  it on a quick key.
 - [Real Time Menus](https://www.nexusmods.com/newvegas/mods/94910) is fully
   supported. BSYS asks the game itself whether the open menu is paused (RTM
   hooks that query with its own live-menu logic), so Benny keeps working in

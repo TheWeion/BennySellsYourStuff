@@ -13,6 +13,7 @@ Create: BSYS_UninstallUDF
 ref rSafe
 ref rBook
 ref rOwner
+ref rChest
 ref rNote
 int iCount
 int iNoteIdx
@@ -50,12 +51,29 @@ Begin Function {}
 
   if rBook
     if rOwner
-      ; Hoisted: classic params take literals, plain vars and parenthesized
-      ; GLOBAL commands - an inline ref-called command is a compile-killer
-      let iCount := rOwner.GetItemCount rBook
+      ; A sold book physically sits in the vendor's MERCHANT CHEST, not
+      ; on the owner actor - resolve the real home like BookGuardUDF does
+      ; and pull from both, or DeleteFormInstance would orphan a chest
+      ; entry on a freed form. (Hoisted counts: an inline ref-called
+      ; command in a classic arg is a compile-killer)
+      let rChest := rOwner.GetMerchantContainer
+
+      if rChest == 0
+        let rChest := rOwner
+      endif
+
+      let iCount := rChest.GetItemCount rBook
 
       if iCount > 0
-        rOwner.RemoveItem rBook iCount 1
+        rChest.RemoveItem rBook iCount 1
+      endif
+
+      if rChest != rOwner
+        let iCount := rOwner.GetItemCount rBook
+
+        if iCount > 0
+          rOwner.RemoveItem rBook iCount 1
+        endif
       endif
     endif
 

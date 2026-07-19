@@ -1,0 +1,88 @@
+; ============================================================================
+; BSYS_WheelTrackUDF
+; ============================================================================
+; Keeps the ledger book's Just Weapons Wheel (JAM) slot alive across save
+; loads. The book is a Plugins+ instance, so its dynamic form ID changes on
+; every load.
+;
+; JAM's wheel array holds base forms - co-save serialized, never repaired by JAM
+; so each load it points at a dead form and the slot silently dies.
+;
+;   iMode 0 - capture: find the book in the wheel, stash the slot in
+;             _BSYS_iBookWheel as slot+1 (0 = no record, so a missing var
+;             can't read as valid slot 0). Called from the GameScript
+;             heartbeat and on every Pip-Boy close - assignments happen
+;             there, and a quicksave straight after must not miss it.
+;             Gated on _BSYS_bWheelSynced: before this load's restore runs
+;             the wheel still holds the previous session's dead form, so a
+;             scan would wrongly record "not on the wheel".
+;   iMode 1 - restore: write the rebuilt book form back into the stashed
+;             slot (InitLoadUDF, after Plugins+ finishes; only ever
+;             overwrites an empty or dead entry).
+;
+; Both modes bail unless THIS save's co-save carries the book
+; (_BSYS_sBookDesc) - the rBook session ref leaks across in-session save
+; loads, the same hazard UninstallUDF guards against.
+;
+; All JWH.* access lives in a runtime-compiled helper
+; (Data\NVSE\user_defined_functions\BennySellsYourStuff\BSYS_JWH.gek): a
+; kit script naming the JWH quest EDID would fail to link when JAM isn't
+; installed. Compiled once per session, only when the ESP resolves.
+;
+; Vanilla favourite hotkeys can't be restored this way: every hotkey
+; command (JIP SetHotkey/SetHotkeyItemRef, JG GetHotkeySlot,
+; Save/RestoreHotkeys) hard-filters to armor/weapon/aid and rejects BOOK.
+; ============================================================================
+
+Create: BSYS_WheelTrackUDF
+
+ref rBook
+ref rHelper
+int iMode
+int iSlot
+
+Begin Function { iMode }
+  let rBook := Goo1.AuxVarGetRef "*_BSYS_rBook"
+
+  if rBook == 0
+    return
+  endif
+
+  ; Session ref, but is it THIS save's book?
+  if (Player.AuxVarSize "_BSYS_sBookDesc") == 0
+    return
+  endif
+
+  ; Lazy one-time helper compile, gated on JAM being present
+  let rHelper := Goo1.AuxVarGetRef "*_BSYS_rJWHHelper"
+
+  if rHelper == 0
+    if (GetFormFromMod "JustAssortedMods.esp" "6800") == 0 ; quest JWH
+      return
+    endif
+
+    let rHelper := CompileScript "BennySellsYourStuff\BSYS_JWH.gek"
+
+    if rHelper == 0
+      return
+    endif
+
+    Goo1.AuxVarSetRef "*_BSYS_rJWHHelper" rHelper
+  endif
+
+  if iMode == 0
+    ; No captures until this load's restore has run
+    if (Goo1.AuxVarGetFlt "*_BSYS_bWheelSynced") == 0
+      return
+    endif
+
+    let iSlot := Call rHelper 0 0 rBook
+    Player.AuxVarSetFlt "_BSYS_iBookWheel" (iSlot + 1)
+  else
+    let iSlot := (Player.AuxVarGetFlt "_BSYS_iBookWheel") - 1
+
+    if iSlot >= 0 && iSlot <= 8
+      Call rHelper 1 iSlot rBook
+    endif
+  endif
+End

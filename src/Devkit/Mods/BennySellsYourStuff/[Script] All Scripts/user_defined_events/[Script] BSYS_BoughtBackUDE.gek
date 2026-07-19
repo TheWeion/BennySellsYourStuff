@@ -14,12 +14,44 @@ Create: BSYS_BoughtBackUDE
 
 ref rItem
 ref rSeller
+ref rVendor
 int iNum
 int iIdx
 
 Begin Function { rItem, rSeller }
-  if rSeller == PlayerREF ; the player SOLD something - not our concern
+  if rSeller == PlayerREF
+    ; The player SOLD something. Only the ledger itself needs tracking:
+    ; OnSell is the one reliable barter signal (the trade transfer is a
+    ; RemoveItem-to-chest engine call that doesn't raise OnAdd), so
+    ; record the buying vendor as the book's home for BSYS_BookGuardUDF
+    if eval rItem == (Goo1.AuxVarGetRef "*_BSYS_rBook")
+      let rVendor := Goo1.AuxVarGetRef "*_BSYS_rBarterVendor"
+
+      ; The barter menu is guaranteed open while OnSell fires - re-derive
+      ; the buyer live if the open-time capture came up empty
+      if rVendor == 0
+        let rVendor := GetMenuTargetRef 1053
+      endif
+
+      if rVendor != 0 && rVendor != BennyREF
+        Player.AuxVarSetRef "_BSYS_rBookOwner" rVendor
+        Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
+
+        if Goo1.AuxVarGetFlt "*_BSYS" 1
+          Print "BSYS | Ledger sold - home recorded: " + (LNGetName rVendor)
+        endif
+      elseif Goo1.AuxVarGetFlt "*_BSYS" 1
+        Print "BSYS | Ledger sold but the buyer could not be identified!"
+      endif
+    endif
+
     return
+  endif
+
+  ; The ledger coming home flips its owner back to the player
+  if eval rItem == (Goo1.AuxVarGetRef "*_BSYS_rBook")
+    Player.AuxVarSetRef "_BSYS_rBookOwner" PlayerREF
+    Player.AuxVarSetFlt "_BSYS_bBookTaken" 1
   endif
 
   ; rItem is always the BASE form - that's why GetSoldItemInvRef exists as

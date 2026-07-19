@@ -32,6 +32,7 @@ Begin Function { bFull }
     Player.AuxVarErase "_BSYS_sBookDesc"
     Player.AuxVarErase "_BSYS_rBookOwner"
     Player.AuxVarErase "_BSYS_bBookTaken"
+    Player.AuxVarErase "_BSYS_iBookWheel"
     Player.AuxVarErase "_BSYS_fLastRecon"
     Player.AuxVarErase "_BSYS_sIntelNote"
     Player.AuxVarErase "_BSYS_bNoteGiven"

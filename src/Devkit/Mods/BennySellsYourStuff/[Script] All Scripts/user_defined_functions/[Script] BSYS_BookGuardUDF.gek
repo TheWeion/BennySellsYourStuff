@@ -1,0 +1,227 @@
+; ============================================================================
+; BSYS_BookGuardUDF
+; ============================================================================
+; Placement insurance for the ledger book while it lives OUTSIDE the
+; player's inventory. Plugins+ round-trips PLAYER-held instances reliably,
+; but its inventory restore for other containers is a one-shot silent
+; splice at load-callback time (DLL-verified): the vendor chest's own
+; engine-side init can rebuild its contents right after and discard the
+; book, and a merchant restock (Sun/Wed vendor update, 72h cell reset)
+; deletes it outright. The save side provably works - the co-save carries
+; the correct {book -> chest} record - so re-adding a missing copy can
+; never duplicate.
+;
+; Rule: when the recorded owner (_BSYS_rBookOwner, kept authoritative by
+; BSYS_BoughtBackUDE for barter both ways plus ShowOff:OnAdd for physical
+; adds - the owner may be the vendor ACTOR or the chest ref itself) is
+; NOT the player, RE-SEAT the book: scrub every entry at the owner/chest
+; and add one clean copy back. Counting alone is NOT enough - P+'s
+; one-shot restore splices a hand-built entry that GetItemCount sees but
+; the container UI and barter pane render as NOTHING (observed in-game:
+; count 1, invisible everywhere). Owner == player is left entirely to
+; Plugins+ - a dropped or stashed book must never be "healed" into a
+; duplicate, so a player-held copy always stands the guard down.
+;
+; Called from InitLoadUDF (both branches, after Plugins+ finished) and at
+; every dialogue open (BSYS_BarterOpenUDE) - a dialogue-time add is early
+; enough to appear in the ensuing barter pane, which snapshots the vendor
+; stock BEFORE the first barter-menu frame.
+; ============================================================================
+
+Create: BSYS_BookGuardUDF
+
+ref rBook
+ref rOwner
+ref rChest
+ref rTalk
+ref rBase
+ref rCellA
+ref rCellB
+ref rLive
+string_var sIdA
+string_var sIdB
+int iCount
+int iFlag
+int iType
+int bAdopt
+int bForce
+int bDebug
+
+Begin Function { rTalk, bForce }
+  ; Returns 1 when a copy was actually (re-)added - the 1053 caller
+  ; refreshes the already-built barter pane on that signal
+  SetFunctionValue 0
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+  let rBook := Goo1.AuxVarGetRef "*_BSYS_rBook"
+
+  if rBook == 0
+    if bDebug
+      Print "BSYS | Book guard: no book instance this session"
+    endif
+    return
+  endif
+
+  ; Session ref, but is it THIS save's book?
+  if (Player.AuxVarSize "_BSYS_sBookDesc") == 0
+    if bDebug
+      Print "BSYS | Book guard: this save has no ledger"
+    endif
+    return
+  endif
+
+  let rOwner := Player.AuxVarGetRef "_BSYS_rBookOwner"
+
+  ; Older records (and ShowOff:OnAdd) may hold a TRUNK rather than the
+  ; vendor - and vendor overhauls can leave that trunk detached from the
+  ; vendor's LIVE merchant container, so the pane never sees our copy.
+  ; When talking to a merchant: adopt the actor as owner if the record is
+  ; his current chest, OR a plain container sitting in his own cell (the
+  ; legacy sale-time trunk). The re-seat below then targets his LIVE
+  ; chest; the legacy trunk is scrubbed here so nothing duplicates.
+  if rTalk != 0 && rTalk != BennyREF && rOwner != 0 && rOwner != PlayerREF
+    let rChest := rTalk.GetMerchantContainer
+
+    if rChest != 0
+      let bAdopt := 0
+
+      if rChest == rOwner
+        let bAdopt := 1
+      else
+        let iType := GetType rOwner
+
+        if iType == 27 ; a bare container ref
+          let rCellA := rOwner.GetParentCell
+          let rCellB := rTalk.GetParentCell
+
+          if rCellA != 0 && rCellA == rCellB
+            let iCount := rOwner.GetItemCount rBook
+
+            if iCount > 0
+              rOwner.RemoveItem rBook iCount 1
+            endif
+
+            let bAdopt := 1
+          endif
+        endif
+      endif
+
+      if bAdopt
+        let rOwner := rTalk
+        Player.AuxVarSetRef "_BSYS_rBookOwner" rTalk
+
+        if bDebug
+          Print "BSYS | Book guard: owner record upgraded to " + (LNGetName rTalk)
+        endif
+      endif
+    endif
+  endif
+
+  if rOwner == 0 || rOwner == PlayerREF
+    if bDebug
+      Print "BSYS | Book guard: owner is the player (or unset) - standing down"
+    endif
+    return
+  endif
+
+  ; The player physically holding it always wins - the owner record is
+  ; stale (buy-back OnSell fixes it on the next trade) and P+ handles the
+  ; player inventory reliably
+  let iCount := Player.GetItemCount rBook
+
+  if iCount > 0
+    if bDebug
+      Print "BSYS | Book guard: the player holds the ledger - standing down"
+    endif
+    return
+  endif
+
+  ; Physical home: a vendor's merchant chest (where barter sales land),
+  ; the owner ref itself otherwise (Benny's corpse, or the chest ref when
+  ; ShowOff:OnAdd recorded the trunk directly)
+  let rChest := rOwner.GetMerchantContainer
+
+  if rChest == 0
+    let rChest := rOwner
+  endif
+
+  if bForce
+    ; Full re-seat: scrub whatever entries exist (a P+ ghost or a valid
+    ; copy - either way the result is one clean, UI-visible entry) and
+    ; add fresh. Only safe while no barter pane is built over the chest
+    let iCount := rChest.GetItemCount rBook
+
+    if iCount > 0
+      rChest.RemoveItem rBook iCount 1
+    endif
+
+    if rChest != rOwner
+      let iCount := rOwner.GetItemCount rBook
+
+      if iCount > 0
+        rOwner.RemoveItem rBook iCount 1
+      endif
+    endif
+
+    rChest.AddItemAlt rBook 1
+    SetFunctionValue 1
+
+    if bDebug
+      let iCount := rChest.GetItemCount rBook
+      let sIdA := sv_Construct "%i" rChest
+      Print "BSYS | Book guard: ledger re-seated at " + (LNGetName rChest) + " [" + $sIdA + "] (count now " + $iCount + ")"
+
+      ; Prove or refute a home-vs-live chest mismatch in one line
+      if rTalk != 0 && rTalk != BennyREF
+        let rLive := rTalk.GetMerchantContainer
+
+        if rLive
+          let sIdB := sv_Construct "%i" rLive
+          Print "BSYS | Book guard: " + (LNGetName rTalk) + "'s live chest is [" + $sIdB + "]"
+        endif
+      endif
+    endif
+  else
+    ; Repair-only (barter pane already built over this chest): on the
+    ; FIRST load of a session the engine can rebuild the chest from
+    ; stale save data AFTER the dialogue-time re-seat, eating it - never
+    ; scrub here (the pane's rows reference the live stacks), just put
+    ; the copy back if it vanished
+    let iCount := rChest.GetItemCount rBook
+
+    if rChest != rOwner
+      let iCount += rOwner.GetItemCount rBook
+    endif
+
+    if iCount == 0
+      rChest.AddItemAlt rBook 1
+      SetFunctionValue 1
+
+      if bDebug
+        Print "BSYS | Book guard: pane repair - ledger re-added at barter open"
+      endif
+    endif
+  endif
+
+  ; The barter pane hides items whose category the vendor's SERVICE flags
+  ; exclude - and vanilla lets you SELL anything regardless, so a ledger
+  ; sold to a vendor with no Books service (Miguel!) would sit in the
+  ; trunk forever, invisible in buy-back. While the book is homed with a
+  ; known vendor, grant the Books service (kService_Books = 8; session
+  ; memory-only edit, re-applied every time this runs)
+  if rChest != rOwner ; owner resolved to an actor with a merchant chest
+    let rBase := rOwner.GetBaseObject
+
+    if rBase
+      let iFlag := GetServiceFlag rBase 8
+
+      if iFlag == 0
+        SetServiceFlag rBase 8 1
+
+        if bDebug
+          Print "BSYS | Book guard: granted the Books service to " + (LNGetName rOwner)
+        endif
+      endif
+    endif
+  endif
+End
