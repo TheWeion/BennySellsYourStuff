@@ -96,6 +96,9 @@ Begin Function {}
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
     SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
+
+    ; Make sure a merchant-held book survived the Plugins+ restore
+    Call BSYS_BookGuardUDF 0 1
     Call BSYS_FenceReconcileUDF
 
     if bDebug
@@ -174,6 +177,9 @@ Begin Function {}
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
   SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
+
+  ; Make sure a merchant-held book survived the Plugins+ restore
+  Call BSYS_BookGuardUDF 0 1
 
   Print "BSYS - Active. Humbled state and end conditions will be checked momentarily..."
 
