@@ -55,9 +55,15 @@ Begin Function { rInst }
   SetModelPath "clutter\books\bookgeneric03.nif" rInst
   SetTexturePath "Interface\Icons\PipboyImages\Items\items_skill_books.dds" rInst
 
-  ; Watch it move (loot, stash, barter - every vanilla add path), so the
-  ; owner on record is always whoever holds it at save time
+  ; Watch it move on vanilla add paths (looting, stashing) so the owner
+  ; on record follows it. Barter is NOT covered here - the trade transfer
+  ; is a RemoveItem-to-chest call that doesn't raise OnAdd - so sales are
+  ; tracked by BSYS_BoughtBackUDE via OnSell instead
   SetEventHandler "ShowOff:OnAdd" BSYS_BookMovedUDE "first"::rInst
 
   Goo1.AuxVarSetRef "*_BSYS_rBook" rInst
+
+  if Goo1.AuxVarGetFlt "*_BSYS" 1
+    Print "BSYS | Recon: ledger instance rebuilt and dressed"
+  endif
 End

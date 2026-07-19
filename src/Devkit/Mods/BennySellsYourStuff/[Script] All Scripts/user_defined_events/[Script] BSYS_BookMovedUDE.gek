@@ -11,11 +11,29 @@ Create: BSYS_BookMovedUDE
 
 ref rItem
 ref rOwner
+ref rCur
+ref rChest
 
 Begin Function { rItem, rOwner }
+  ; A sale records the VENDOR via OnSell first; the physical add then
+  ; reports the vendor's trunk. Keep the actor - it survives trunk
+  ; rotation by vendor overhauls and the Books-service grant needs it
+  let rCur := Player.AuxVarGetRef "_BSYS_rBookOwner"
+
+  if rCur != 0 && rCur != PlayerREF
+    let rChest := rCur.GetMerchantContainer
+
+    if rChest != 0 && rChest == rOwner
+      return
+    endif
+  endif
+
   Player.AuxVarSetRef "_BSYS_rBookOwner" rOwner
 
   if rOwner == PlayerREF
     Player.AuxVarSetFlt "_BSYS_bBookTaken" 1
+  else
+    ; Symmetric with the OnSell paths - out of the player's hands
+    Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
   endif
 End

@@ -28,14 +28,34 @@ int iNum
 int iIdx
 int iCount
 int iMask
+int iAdded
 
 Begin Function { iMenuId }
   let rVendor := GetMenuTargetRef iMenuId
   Goo1.AuxVarSetRef "*_BSYS_rBarterVendor" rVendor
 
   if iMenuId != 1009
+    ; Barter just opened over an already-built pane: verify the ledger is
+    ; still where the dialogue-time re-seat put it (the engine's lazy
+    ; save-data application can eat it on a session's first load), and
+    ; refresh the pane if a repair was needed
+    if iMenuId == 1053
+      let iAdded := Call BSYS_BookGuardUDF rVendor 0
+
+      if iAdded
+        RefreshItemsList
+      endif
+    endif
+
     return
   endif
+
+  ; A dialogue-time add lands BEFORE the barter pane snapshots the vendor
+  ; stock, so a book lost to a restock or a failed Plugins+ restore is
+  ; back on the shelf by the time trade opens (the NPC goes along so the
+  ; guard can upgrade a trunk-recorded owner and grant the Books service)
+  Call BSYS_BookGuardUDF rVendor 1
+
   if rVendor == 0 || rVendor == BennyREF
     return
   endif

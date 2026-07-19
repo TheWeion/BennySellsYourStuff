@@ -1,0 +1,16 @@
+; ============================================================================
+; BSYS_PipCloseUDE
+; ============================================================================
+; Pip-Boy (1002) close handler: wheel assignments happen inside the
+; Pip-Boy, so capture the ledger's Just Weapons Hweel slot the moment it
+; closes - the 5s heartbeat alone would lose an assignment made right
+; before a quicksave.
+; ============================================================================
+
+Create: BSYS_PipCloseUDE
+
+int iMenuId
+
+Begin Function { iMenuId }
+  Call BSYS_WheelTrackUDF 0
+End

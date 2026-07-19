@@ -19,14 +19,17 @@ Uses only the Python standard library (shutil/zipfile) - no external `zip`
 binary needed, so it runs the same from Git Bash, PowerShell or cmd.
 
 Usage:
-    python tools/build.py                      # version from KitInfo.ini
+    python tools/build.py                      # version from git (KitInfo fallback)
     python tools/build.py --version 1.1.0-local
+    python tools/build.py --print-version      # resolve + print, build nothing
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,6 +49,78 @@ def read_version(kit_info: Path) -> str:
     sys.exit(f"No 'Version:' line in {kit_info} - pass --version explicitly.")
 
 
+def git_next_version() -> str | None:
+    """Mirror the release workflow's version math (github-tag-action).
+
+    Baseline = the highest stable vX.Y.Z tag anywhere in the repo. Releases
+    are cut from SQUASH merges onto main, so develop's commits are never
+    ancestors of the release tags: ancestry-bound lookups (`git describe`)
+    under-count from develop, and commit ranges over-count (already-released
+    commits re-appear). So content decides first: if src/ is identical to
+    the baseline tag's, this tree IS that release - no bump. Otherwise bump
+    by the strongest Conventional Commit in <tag>..HEAD, judged the way the
+    CI analyzer judges: commit types from SUBJECT lines only, and major
+    only on an actual "BREAKING CHANGE:" footer line - a body merely
+    MENTIONING the phrase (like the commit documenting these rules) must
+    not count, and the action ignores the `type!:` shorthand entirely.
+    The range can include released commits (squash topology), so a preview
+    of unreleased work may bump one step higher than the release CI
+    eventually cuts - a naming overshoot on local previews only. Returns
+    None when git/tags aren't available.
+    """
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True)
+        except OSError as e:
+            return subprocess.CompletedProcess(("git", *args), 1, "", str(e))
+
+    tags = git("tag", "--list")
+    if tags.returncode != 0:
+        return None
+
+    stable = []
+    for tag in tags.stdout.split():
+        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+        if m:
+            stable.append((tuple(int(g) for g in m.groups()), tag))
+    if not stable:
+        return None
+
+    (major, minor, patch), tag = max(stable)
+
+    # Same src/ as the released tag = this IS that release. No HEAD arg:
+    # the build packages the WORKING TREE, so uncommitted src/ edits must
+    # count as a difference too
+    if git("diff", "--quiet", tag, "--", "src").returncode == 0:
+        return f"{major}.{minor}.{patch}"
+
+    subjects = git("log", f"{tag}..HEAD", "--pretty=%s")
+    bodies = git("log", f"{tag}..HEAD", "--pretty=%b")
+    if subjects.returncode != 0 or bodies.returncode != 0:
+        return None
+
+    rank = 0  # 0 = no releasable commits, 1 = patch, 2 = minor, 3 = major
+    for line in bodies.stdout.splitlines():
+        if re.match(r"BREAKING[ -]CHANGE:", line):
+            rank = 3
+            break
+
+    if rank < 3:
+        for line in subjects.stdout.splitlines():
+            if re.match(r"feat(\([^)]*\))?:", line):
+                rank = max(rank, 2)
+            elif re.match(r"fix(\([^)]*\))?:", line):
+                rank = max(rank, 1)
+
+    if rank == 3:
+        return f"{major + 1}.0.0"
+    if rank == 2:
+        return f"{major}.{minor + 1}.0"
+    if rank == 1:
+        return f"{major}.{minor}.{patch + 1}"
+    return f"{major}.{minor}.{patch}"
+
+
 def stamp_version(kit_info: Path, version: str) -> None:
     """Rewrite the staged KitInfo.ini's Version line, keeping LF endings."""
     lines = kit_info.read_text(encoding="utf-8").splitlines()
@@ -63,7 +138,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build local mod-manager zips into dist/.")
     parser.add_argument(
         "--version",
-        help="Version to stamp/name with (default: the Version in KitInfo.ini).",
+        help="Version to stamp/name with (default: derived from git tags + "
+             "Conventional Commits, mirroring the release workflow; falls "
+             "back to the Version in KitInfo.ini without git).",
+    )
+    parser.add_argument(
+        "--print-version",
+        action="store_true",
+        help="Resolve and print the version, build nothing (used by CI).",
     )
     args = parser.parse_args(argv)
 
@@ -71,8 +153,20 @@ def main(argv: list[str] | None = None) -> int:
     if not kit_info.is_file():
         sys.exit(f"KitInfo.ini not found at {kit_info}")
 
-    version = args.version or read_version(kit_info)
-    print(f"Building {NAME} v{version}")
+    version = args.version
+    source = "--version"
+    if not version:
+        version = git_next_version()
+        source = "git"
+    if not version:
+        version = read_version(kit_info)
+        source = "KitInfo.ini fallback"
+
+    if args.print_version:
+        print(version)
+        return 0
+
+    print(f"Building {NAME} v{version} ({source})")
 
     main_stage = DIST / f"{NAME}-Main-v{version}"
     config_stage = DIST / f"{NAME}-Config-v{version}"
