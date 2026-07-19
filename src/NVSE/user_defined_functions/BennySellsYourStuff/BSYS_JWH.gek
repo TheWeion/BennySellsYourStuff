@@ -1,0 +1,52 @@
+; ============================================================================
+; BSYS_JWH.gek - runtime-compiled bridge to Just Assorted Mods' weapon
+; wheel (quest JWH in JustAssortedMods.esp).
+;
+; Lives OUTSIDE the Devkit on purpose: a kit script naming the JWH quest
+; would fail to link whenever JAM isn't installed, so BSYS_WheelTrackUDF
+; compiles this file on demand (CompileScript) only after confirming the
+; ESP is present. Files in user_defined_functions are never auto-compiled.
+;
+;   iMode 0 - find: SetFunctionValue = wheel slot index holding rForm
+;             (-1 = not on the wheel); iSlot unused
+;   iMode 1 - write: put rForm into slot iSlot - but never over a LIVE
+;             item, only an empty or dead entry
+; ============================================================================
+
+int iMode
+int iSlot
+int iIdx
+ref rForm
+array_var aWheel
+
+begin Function { iMode, iSlot, rForm }
+  if iMode == 0
+    SetFunctionValue -1
+  endif
+
+  let aWheel := GetArrayVariable "aItem" JWH
+
+  ; Array ID 0 = JWH's quest script hasn't initialized its array yet
+  if eval aWheel
+    if iMode == 0
+      let iIdx := 0
+
+      while iIdx < 9
+        if eval IsFormValid (aWheel[iIdx])
+          if eval (aWheel[iIdx]) == rForm
+            SetFunctionValue iIdx
+            break
+          endif
+        endif
+
+        let iIdx += 1
+      loop
+    else
+      if eval IsFormValid (aWheel[iSlot]) == 0
+        let aWheel[iSlot] := rForm
+        ; Nudge JWH into re-deriving the slot's HUD icon on its next pass
+        set JWH.iSettingUpdate to 1
+      endif
+    endif
+  endif
+end

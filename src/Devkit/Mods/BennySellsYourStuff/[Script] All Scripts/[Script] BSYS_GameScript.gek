@@ -49,6 +49,10 @@ BeginAlt GameLoop
     if Goo1.AuxVarGetFlt "*_BSYS_fPollTimer" >= 5
       Goo1.AuxVarSetFlt "*_BSYS_fPollTimer" 0
 
+      ; Keep the ledger's wheel-slot record fresh (no-ops without JAM or
+      ; without the book)
+      Call BSYS_WheelTrackUDF 0
+
       if bEnabled
         if Goo1.AuxVarGetFlt "*_BSYS_bActive" == 1 && Player.AuxVarGetFlt "_BSYS_iEnded" == 0
           Call BSYS_EndCheckUDF

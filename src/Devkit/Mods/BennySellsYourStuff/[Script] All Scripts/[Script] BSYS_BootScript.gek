@@ -154,6 +154,9 @@ BeginAlt Boot
   Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" 0
   Goo1.AuxVarErase "*_BSYS_rGreetedNPC"
   Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 0
+  ; Runtime-compiled JWH helper is per-launch - recompile lazily
+  Goo1.AuxVarErase "*_BSYS_rJWHHelper"
+  Goo1.AuxVarSetFlt "*_BSYS_bWheelSynced" 0
 
   ; Benny's ledger book: Plugins+ rebuilds "BSYS"-keyed instances from the
   ; co-save on every save load, but naked - the cosmetics and inventory

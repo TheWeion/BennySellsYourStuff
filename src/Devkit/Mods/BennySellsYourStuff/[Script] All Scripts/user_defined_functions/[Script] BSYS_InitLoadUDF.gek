@@ -28,6 +28,7 @@ Begin Function {}
   Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
   Goo1.AuxVarSetFlt "*_BSYS_bIntelLive" 0
   Goo1.AuxVarSetFlt "*_BSYS_iNoMenuFrames" 0
+  Goo1.AuxVarSetFlt "*_BSYS_bWheelSynced" 0
   Goo1.AuxVarErase "*_BSYS_rGreetedNPC"
   ; CallAfterFrames timers flush on load - never leave the shield stuck up
   Goo1.AuxVarSetFlt "*_BSYS_bBoxShield" 0
@@ -96,8 +97,13 @@ Begin Function {}
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
     SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
+    SetOnMenuCloseEventHandler BSYS_PipCloseUDE 1 1002
 
-    ; Make sure a merchant-held book survived the Plugins+ restore
+    ; The book came back with a fresh form ID - rehang its wheel slot,
+    ; then open the capture window for this load, and make sure a
+    ; merchant-held book survived the Plugins+ restore
+    Call BSYS_WheelTrackUDF 1
+    Goo1.AuxVarSetFlt "*_BSYS_bWheelSynced" 1
     Call BSYS_BookGuardUDF 0 1
     Call BSYS_FenceReconcileUDF
 
@@ -177,8 +183,13 @@ Begin Function {}
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1053
   SetOnMenuOpenEventHandler BSYS_BarterOpenUDE 1 1009
   SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
+  SetOnMenuCloseEventHandler BSYS_PipCloseUDE 1 1002
 
-  ; Make sure a merchant-held book survived the Plugins+ restore
+  ; The book came back with a fresh form ID - rehang its wheel slot
+  ; (no-op until the ledger exists), then open the capture window, and
+  ; make sure a merchant-held book survived the Plugins+ restore
+  Call BSYS_WheelTrackUDF 1
+  Goo1.AuxVarSetFlt "*_BSYS_bWheelSynced" 1
   Call BSYS_BookGuardUDF 0 1
 
   Print "BSYS - Active. Humbled state and end conditions will be checked momentarily..."
