@@ -66,7 +66,10 @@ def git_next_version() -> str | None:
     local previews only. Returns None when git/tags aren't available.
     """
     def git(*args: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True)
+        try:
+            return subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True)
+        except OSError as e:
+            return subprocess.CompletedProcess(("git", *args), 1, "", str(e))
 
     tags = git("tag", "--list")
     if tags.returncode != 0:
