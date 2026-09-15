@@ -68,7 +68,8 @@ or gone, because until then you can still let him talk his way out.
 
 The ledger and the death payout need a body. If he got away, they turn up on
 his corpse whenever you finally kill him — on his way out, or at the Fort
-(Caesar's tent, the arena, the cross). Help him escape the Fort and they're
+(Caesar's tent, the arena, the cross). When crucified, you take the ledger
+and his cut of the caps the moment you talk to him. Help him escape the Fort and whatever you didn't take is
 gone with him.
 
 Everything settles *before* you can reach the safe. Entering the suite forces a
@@ -94,7 +95,7 @@ Walk into the right shop and buy it back at the counter, priced live by the
 barter menu with your Barter skill and perks.
 
 **Benny's Ledger.** When he dies — whether that death ends the spree or
-comes long after it — his body carries a handwritten ledger:
+comes long after it — his body carries a handwritten ledger (unless you took it from him while he is crucified):
 every sale, dated and priced, with the buyer's name and location — plus a
 Luck-scaled cut of the caps he *actually* made fencing your gear
 (`fRecoverCapsPctBase` + `fRecoverCapsPctPerLuck`). Buy an item back and its
@@ -123,9 +124,9 @@ numbers. Bought intel is written onto the **last page of Benny's Ledger**,
 in the Courier's own hand — every tip in one place, separate from Benny's
 entries — and each line is a snapshot of what the fence told you: if the
 goods move again, you'll need fresh intel. (The ledger only exists once
-Benny is dead; intel bought before that — during the spree, or after an end
-that left him alive — is remembered and appears the moment the book is
-written.)
+Benny is dead, or if the player takes it while he is on the cross; intel bought before that
+— during the spree, or after an end that left him alive — is remembered and
+appears the moment the book is written.)
 
 ## Requirements
 

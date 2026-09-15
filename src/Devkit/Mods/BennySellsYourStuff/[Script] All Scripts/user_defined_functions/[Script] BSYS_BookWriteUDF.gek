@@ -2,9 +2,10 @@
 ; BSYS_BookWriteUDF
 ; ============================================================================
 ; Builds the ledger book text from the per-sale rows and stores it in the
-; save. First written by BSYS_BookSpawnUDF when the book lands on Benny's
-; corpse (a death end, a kill after an alive-end, or the load self-heal),
-; then again on every post-end buyback (BSYS_BoughtBackUDE) and intel
+; save. First written by BSYS_BookSpawnUDF when the book is first served
+; (a death end, a kill after an alive-end, the load self-heal, or the
+; hand-over to the player on the cross), then again on every post-end
+; buyback (BSYS_BoughtBackUDE) and intel
 ; reveal (BSYS_IntelPayUDE). The stored text doubles as BookSpawnUDF's
 ; "already served" marker, so every other caller must gate on it.
 ;

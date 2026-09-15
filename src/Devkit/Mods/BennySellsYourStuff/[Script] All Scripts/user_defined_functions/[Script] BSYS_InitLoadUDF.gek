@@ -106,6 +106,8 @@ Begin Function {}
     SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
     SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
     SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
+    ; ...and on the cross the ledger changes hands when the player talks to him
+    SetEventHandler "OnActivate" BSYS_CrossUDE "first"::VFortBennyCrucifiedRef "second"::player
 
     ; A payout still queued when the save was made (timers flush on load;
     ; no sweep can be pending for a body that was already dead at load)
@@ -183,6 +185,10 @@ Begin Function {}
   ; console clock jump landing in the poll gap while standing at the safe
   ; is already settled when the lid comes up
   SetEventHandler "OnActivate" BSYS_OnActivateUDE "first"::rSafe "second"::player
+
+  ; Crucified Benny: the ledger changes hands when the player talks to him
+  ; (a flight end can arrive and Caesar can get him within one session)
+  SetEventHandler "OnActivate" BSYS_CrossUDE "first"::VFortBennyCrucifiedRef "second"::player
 
   ; Buyback watcher: fires per traded stack on any accepted barter deal
   SetEventHandler "OnSell" BSYS_BoughtBackUDE

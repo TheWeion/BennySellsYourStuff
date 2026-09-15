@@ -13,7 +13,8 @@
 ; (3) Settle via SimUDF (incremental,
 ; safe to call any time). (4) On an end: freeze (_BSYS_iEnded), stamp the
 ; end moment, notify, serve the corpse (BookSpawnUDF - only if the end IS
-; a death; otherwise OnDeathUDE does it when Benny finally dies), print
+; a death; otherwise OnDeathUDE does it when Benny finally dies, or
+; CrossUDE hands it over on the cross), print
 ; the debug ledger, drop the settle scratch (CleanupUDF 0 - the totals,
 ; fBookEnd, book state and ledger rows stay: BookSpawnUDF and the fencing
 ; network still need them).

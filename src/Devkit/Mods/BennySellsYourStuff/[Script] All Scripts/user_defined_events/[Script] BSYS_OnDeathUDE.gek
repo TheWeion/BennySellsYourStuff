@@ -3,7 +3,8 @@
 ; ============================================================================
 ; xNVSE OnDeath, registered per Benny ref in InitLoadUDF - on ended saves
 ; too. While the spree runs any Benny death ends it (EndCheckUDF). Either
-; way the body then gets its ledger and payout HERE, by explicit ref: the
+; way the body then gets whatever it is still owed HERE (ledger and caps,
+; or just the caps after a cross hand-over), by explicit ref: the
 ; dispatch sits at the dying->dead transition, past the ~2s fall that
 ; on-dying loot sweeps (Sweet Scarcity) run inside, and the spree may
 ; have ended with Benny alive long before (he fled the Tops - issue

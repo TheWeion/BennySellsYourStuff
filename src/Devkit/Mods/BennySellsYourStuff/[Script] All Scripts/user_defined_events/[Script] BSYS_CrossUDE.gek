@@ -1,0 +1,33 @@
+; ============================================================================
+; BSYS_CrossUDE
+; ============================================================================
+; xNVSE OnActivate on VFortBennyCrucifiedRef by the player - the same event
+; BHYSYS hands the safe key over on. Crucified, Benny only dies if the
+; player kills him, so the ledger changes hands here instead, before the
+; vanilla script starts his dialogue. Alive check: once he's dead that key
+; is the loot menu, and the body path has served him. BookSpawnUDF with
+; PlayerREF hands over the book and his cut of the caps once - a later
+; kill owes nothing.
+; ============================================================================
+
+Create: BSYS_CrossUDE
+
+ref rActivated
+ref rActionRef
+ref rMe
+
+Begin Function { rActivated, rActionRef }
+  if VFortBennyCrucifiedRef.GetDead
+    return
+  endif
+
+  ; A mid-save install after he's already on the cross never started a
+  ; spree - nothing to hand over
+  if Player.AuxVarGetFlt "_BSYS_iEnded" == 0
+    return
+  endif
+
+  ; PlayerREF as the "corpse" = hand-over mode
+  let rMe := PlayerREF
+  Call BSYS_BookSpawnUDF rMe
+End

@@ -6,7 +6,8 @@
 ; it leftover gear reads as a fresh humbling), the spree totals, fBookEnd,
 ; the book state and the Ledger* rows all survive: the fencing network
 ; trades on after the end and BookSpawnUDF writes the ledger from them
-; when Benny finally dies. bFull=1 (uninstall only) wipes the lot.
+; when Benny finally dies or hands it over on the cross. bFull=1
+; (uninstall only) wipes the lot.
 ; ============================================================================
 
 Create: BSYS_CleanupUDF
@@ -30,6 +31,7 @@ Begin Function { bFull }
     Player.AuxVarErase "_BSYS_iCapsSpent"
     Player.AuxVarErase "_BSYS_fBookEnd"
     Player.AuxVarErase "_BSYS_iPayoutDue"
+    Player.AuxVarErase "_BSYS_iPayoutOwed"
     Player.AuxVarErase "_BSYS_sBookDesc"
     Player.AuxVarErase "_BSYS_rBookOwner"
     Player.AuxVarErase "_BSYS_bBookTaken"

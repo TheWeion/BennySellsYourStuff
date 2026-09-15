@@ -6,13 +6,18 @@
 ; The flight end (Benny gone from the Tops) freezes the spree with him
 ; still alive, so this can't live inside EndCheckUDF: it runs from there
 ; when the end IS a death, from OnDeathUDE when he dies after an end, at
-; load to serve a corpse that a pre-fix save left empty (issue #7).
+; load to serve a corpse that a pre-fix save left empty (issue #7), and
+; from BSYS_CrossUDE with rCorpse = PlayerREF when the player talks to
+; him on the cross - the ledger and his cut of the caps change hands
+; there, straight into the player's pocket.
 ;
 ; Idempotent: stored book text plus an owner or a taken flag on record is
 ; the "ledger served" marker - the text is first written HERE, every
 ; other BookWriteUDF caller gates on it, and only a live instance ever
 ; writes the owner and taken flag - and the payout has its own
-; (_BSYS_iPayoutOwed 2 = settled, final). A spree with nothing
+; (_BSYS_iPayoutOwed 2 = settled, final; 1 = a hand-over from before the
+; caps joined it left them owed, paid on the next interact or kill). A
+; spree with nothing
 ; sold or spent writes nothing. rCorpse 0 = find the dead Benny ref, but
 ; a body still mid-fall is left for OnDeathUDE: anything added during the
 ; ~2s dying animation can be swept by on-dying loot passes (Sweet
@@ -32,6 +37,7 @@ ref rCorpse
 ref rOwner
 int bDebug
 int iTaken
+int bToPlayer
 int bBookOwed
 int bPayOwed
 int iOwed
@@ -65,13 +71,21 @@ Begin Function { rCorpse }
     let bBookOwed := 1
   endif
 
-  ; The caps follow the book onto the body (2 = settled and final; unset
-  ; on saves served before this marker existed, which were paid with the
-  ; book)
+  let bToPlayer := 0
+
+  if rCorpse == PlayerREF
+    let bToPlayer := 1
+  endif
+
+  ; The caps follow the book - onto the body, or into the pocket on the
+  ; cross (2 = settled and final; 1 = an older hand-over left them owed;
+  ; unset on saves served before the split, which were paid with the book)
   let iOwed := Player.AuxVarGetFlt "_BSYS_iPayoutOwed"
   let bPayOwed := 0
 
-  if bBookOwed && iOwed != 2
+  if iOwed == 1
+    let bPayOwed := 1
+  elseif bBookOwed && iOwed != 2
     let bPayOwed := 1
   endif
 
@@ -143,22 +157,30 @@ Begin Function { rCorpse }
     endif
 
     ; Text first, then the instance: BennyLedgerGenUDF dresses the new
-    ; book from the stored text and places it on the recorded owner
+    ; book from the stored text and places it on the recorded owner - the
+    ; engine's own "added" line is the feedback for a hand-over
     Call BSYS_BookWriteUDF fEnd
     Player.AuxVarSetRef "_BSYS_rBookOwner" rCorpse
-    Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
-    Call BSYS_BennyLedgerGenUDF
+    Player.AuxVarSetFlt "_BSYS_bBookTaken" bToPlayer
+    Call BSYS_BennyLedgerGenUDF bToPlayer
 
-    if bDebug
-      Print "BSYS - Benny's ledger is on the body: " + (LNGetName rCorpse)
+    if bToPlayer
+      if bDebug
+        Print "BSYS - Benny's ledger taken off the cross"
+      endif
+    else
+      if bDebug
+        Print "BSYS - Benny's ledger is on the body: " + (LNGetName rCorpse)
+      endif
     endif
   endif
 
   ; --- Death payout: a Luck-scaled cut of what Benny ACTUALLY got for the
-  ; goods (summed real proceeds, not base value) is still on the body.
-  ; Queued, not added: caps can't opt out of Sweet Scarcity's on-dying
-  ; sweep the way the book does, so they ride the sweep's own clock
-  ; behind it (BSYS_PayoutUDF explains) ---
+  ; goods (summed real proceeds, not base value) is still on him. On a
+  ; body it is queued, not added: caps can't opt out of Sweet Scarcity's
+  ; on-dying sweep the way the book does, so they ride the sweep's own
+  ; clock behind it (BSYS_PayoutUDF explains). The player's own pocket
+  ; is never swept, so the cross hand-over adds them outright ---
   if bPayOwed
     let iPayTotal := 0
     let iIdx := 0
@@ -179,11 +201,19 @@ Begin Function { rCorpse }
       let iPayout := Floor (iPayTotal * fPayPct / 100)
 
       if iPayout > 0
-        Player.AuxVarSetFlt "_BSYS_iPayoutDue" iPayout
-        CallAfterSeconds 0.5 BSYS_PayoutUDF 0
+        if bToPlayer
+          rCorpse.AddItemAlt Caps001 iPayout 100 0 0
 
-        if bDebug
-          Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for, queued for the body"
+          if bDebug
+            Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for, handed over on the cross"
+          endif
+        else
+          Player.AuxVarSetFlt "_BSYS_iPayoutDue" iPayout
+          CallAfterSeconds 0.5 BSYS_PayoutUDF 0
+
+          if bDebug
+            Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for, queued for the body"
+          endif
         endif
       endif
     endif
