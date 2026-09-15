@@ -6,8 +6,8 @@
 ; way the body then gets its ledger and payout HERE, by explicit ref: the
 ; dispatch sits at the dying->dead transition, past the ~2s fall that
 ; on-dying loot sweeps (Sweet Scarcity) run inside, and the spree may
-; have ended with Benny alive long before (stage 20, suite backstop,
-; Black Widow flight - issue #7). No-op if EndCheck already served him.
+; have ended with Benny alive long before (he fled the Tops - issue
+; #7). No-op if EndCheck already served him.
 ; ============================================================================
 
 Create: BSYS_OnDeathUDE

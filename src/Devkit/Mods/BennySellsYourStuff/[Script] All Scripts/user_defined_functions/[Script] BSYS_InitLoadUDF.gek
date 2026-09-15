@@ -99,8 +99,8 @@ Begin Function {}
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_PipCloseUDE 1 1002
 
-    ; A spree that ended with Benny alive (stage 20, suite backstop,
-    ; Black Widow flight) still owes his corpse the ledger and payout:
+    ; A spree that ended with Benny alive (he fled the Tops) still owes
+    ; his corpse the ledger and payout:
     ; watch for the death, and serve a body already lying there (a save
     ; that hit issue #7 before the fix)
     SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
@@ -160,7 +160,6 @@ Begin Function {}
 
   ; Suite cell's Editor ID starts with a digit, so resolve it by string
   let rSuite := EditorIDToFormID "2ETopsPresidentialSuite"
-  Goo1.AuxVarSetRef "*_BSYS_rSuite" rSuite
 
   Goo1.AuxVarSetFlt "*_BSYS_bActive" 1
 
@@ -168,8 +167,6 @@ Begin Function {}
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
-
-  SetOnQuestStageEventHandler BSYS_OnQuestStageUDE 1 VMQTops 20
 
   SetEventHandler "OnCellEnter" BSYS_OnCellEnterUDE "first"::rSuite
 

@@ -56,19 +56,24 @@ spending your caps at all? `bSpendCaps=0` in the `[Fencing]` section.)
 Waiting, Sleeping and fast travel are charged in full, at the correct
 week-by-week escalation rates, the moment you wake up or arrive.
 
-**It ends** — and the safe is frozen forever — when any of these happen:
+**It ends** — and the safe is frozen forever — when one of two things happens:
 1. Benny dies — at the Tops, at Caesar's tent, or on the cross
-2. You talk him into the presidential suite meeting (Ring-a-Ding-Ding! stage 20)
-3. Benny flees the Tops / ends up Caesar's captive (covers the Black Widow route)
-4. Backstop: Benny is physically waiting in the presidential suite
+2. Benny gets away — he leaves the Tops for Caesar's Fort (the intercom
+   no-show, letting him walk after Swank sends him up, the Black Widow route:
+   every path that doesn't kill him on the spot)
 
-The ledger and the death payout need a body. If the spree ends while Benny
-is still alive (2–4), they turn up on his corpse whenever you finally kill
-him — in the suite, at Caesar's tent, or on the cross.
+Nothing else ends it. Arranging the suite meeting, finding him waiting up
+there, even taking the key off him — the spree keeps running until he's dead
+or gone, because until then you can still let him talk his way out.
+
+The ledger and the death payout need a body. If he got away, they turn up on
+his corpse whenever you finally kill him — on his way out, or at the Fort
+(Caesar's tent, the arena, the cross). Help him escape the Fort and they're
+gone with him.
 
 Everything settles *before* you can reach the safe. Entering the suite forces a
-final settlement — even if you break in early with a pickpocketed key — so you
-never watch items vanish.
+settlement — even if you break in early with a pickpocketed key — so you never
+watch items vanish.
 
 **Quest items are never sold.** Neither are the safe key or Benny's note. And
 the `[Fencing]` section of the config decides which categories Benny will
