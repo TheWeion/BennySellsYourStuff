@@ -10,7 +10,8 @@
 ;
 ; NEVER add the book here: placement is Plugins+'s job, and a scripted
 ; re-add duplicates it (or yanks a deliberately dropped copy back into an
-; inventory). The one scripted add is the initial placement at creation.
+; inventory). The creation add lives in BennyLedgerGenUDF; BookGuardUDF
+; re-seats the same instance at vendor chests when Plugins+ drops it.
 ; ============================================================================
 
 Create: BSYS_BookReconUDE
@@ -54,6 +55,13 @@ Begin Function { rInst }
   SetName ($sName) rInst
   SetModelPath "clutter\books\bookgeneric03.nif" rInst
   SetTexturePath "Interface\Icons\PipboyImages\Items\items_skill_books.dds" rInst
+
+  ; Sweet Scarcity (S6S's loot thinner, a common BHYSYS pairing) rolls to
+  ; sweep every item on a body 0.1s into the dying animation, and every
+  ; container and placement on a cell's first visit, into its DummiREF.
+  ; -1 on the base form is its own per-item opt-out - a session var on a
+  ; per-load form ID, so it rides along with every dress. Inert without it
+  AuxVarSetFlt "*_fSweetScarcityCustomChance" -1 0 rInst
 
   ; Watch it move on vanilla add paths (looting, stashing) so the owner
   ; on record follows it. Barter is NOT covered here - the trade transfer

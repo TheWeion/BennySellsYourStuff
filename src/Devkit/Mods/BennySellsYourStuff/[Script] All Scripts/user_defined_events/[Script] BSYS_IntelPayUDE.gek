@@ -170,10 +170,11 @@ Begin Function { iButton }
 
   MessageExAlt 6 ($sMsg)
 
-  ; Write it onto the ledger's intel appendix if the book exists yet -
-  ; pre-end reveals live in the arrays until the ledger is written at
-  ; spree end. (Same rebuild guard as BSYS_BoughtBackUDE)
-  if Player.AuxVarGetFlt "_BSYS_iEnded" && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+  ; Write it onto the ledger's intel appendix once THIS save has written
+  ; its book - reveals bought before then (mid-spree, or after an end
+  ; that left Benny alive) sit in the arrays until BookSpawnUDF reads
+  ; them. (Same rebuild guard as BSYS_BoughtBackUDE, reasons there)
+  if Player.AuxVarGetFlt "_BSYS_iEnded" && (Player.AuxVarSize "_BSYS_sBookDesc") > 0 && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
     Call BSYS_BookWriteUDF (Player.AuxVarGetFlt "_BSYS_fBookEnd")
     Call BSYS_BookReconUDE (Goo1.AuxVarGetRef "*_BSYS_rBook")
   endif

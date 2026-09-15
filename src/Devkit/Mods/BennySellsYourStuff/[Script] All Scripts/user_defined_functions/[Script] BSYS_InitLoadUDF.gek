@@ -99,6 +99,24 @@ Begin Function {}
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_PipCloseUDE 1 1002
 
+    ; A spree that ended with Benny alive (he fled the Tops) still owes
+    ; his corpse the ledger and payout:
+    ; watch for the death, and serve a body already lying there (a save
+    ; that hit issue #7 before the fix)
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
+    ; ...and on the cross the ledger changes hands when the player talks to him
+    SetEventHandler "OnActivate" BSYS_CrossUDE "first"::VFortBennyCrucifiedRef "second"::player
+
+    ; A payout still queued when the save was made (timers flush on load;
+    ; no sweep can be pending for a body that was already dead at load)
+    if (Player.AuxVarGetFlt "_BSYS_iPayoutDue") > 0
+      Call BSYS_PayoutUDF
+    endif
+
+    Call BSYS_BookSpawnUDF 0
+
     ; The book came back with a fresh form ID - rehang its wheel slot,
     ; then open the capture window for this load, and make sure a
     ; merchant-held book survived the Plugins+ restore
@@ -144,7 +162,6 @@ Begin Function {}
 
   ; Suite cell's Editor ID starts with a digit, so resolve it by string
   let rSuite := EditorIDToFormID "2ETopsPresidentialSuite"
-  Goo1.AuxVarSetRef "*_BSYS_rSuite" rSuite
 
   Goo1.AuxVarSetFlt "*_BSYS_bActive" 1
 
@@ -152,8 +169,6 @@ Begin Function {}
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
   SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
-
-  SetOnQuestStageEventHandler BSYS_OnQuestStageUDE 1 VMQTops 20
 
   SetEventHandler "OnCellEnter" BSYS_OnCellEnterUDE "first"::rSuite
 
@@ -170,6 +185,10 @@ Begin Function {}
   ; console clock jump landing in the poll gap while standing at the safe
   ; is already settled when the lid comes up
   SetEventHandler "OnActivate" BSYS_OnActivateUDE "first"::rSafe "second"::player
+
+  ; Crucified Benny: the ledger changes hands when the player talks to him
+  ; (a flight end can arrive and Caesar can get him within one session)
+  SetEventHandler "OnActivate" BSYS_CrossUDE "first"::VFortBennyCrucifiedRef "second"::player
 
   ; Buyback watcher: fires per traded stack on any accepted barter deal
   SetEventHandler "OnSell" BSYS_BoughtBackUDE

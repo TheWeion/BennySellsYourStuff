@@ -70,11 +70,15 @@ Begin Function { rItem, rSeller }
         endif
 
         ; Scribble the ledger: rebuild the book text with this row grayed
-        ; and re-dress the live instance. Mid-spree recoveries need no
-        ; rebuild - the book is first written at spree end anyway.
-        ; (fBookEnd is 0 on saves that ended before it existed - their
-        ; book stays static rather than gaining a broken duration line)
-        if Player.AuxVarGetFlt "_BSYS_iEnded" && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+        ; and re-dress the live instance - only once THIS save has written
+        ; its book. The stored text is the one honest "book exists" test:
+        ; fBookEnd is stamped at every end now, book or not, and the
+        ; session rBook ref leaks across in-session save loads. Writing
+        ; early would plant BookSpawnUDF's "already served" marker on a
+        ; bookless save. Recoveries before the book exists just sit in
+        ; the rows until it reads them. (Legacy books without a stamp
+        ; stay static rather than gaining a broken duration line)
+        if Player.AuxVarGetFlt "_BSYS_iEnded" && (Player.AuxVarSize "_BSYS_sBookDesc") > 0 && (Goo1.AuxVarGetRef "*_BSYS_rBook") != 0 && (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
           Call BSYS_BookWriteUDF (Player.AuxVarGetFlt "_BSYS_fBookEnd")
           Call BSYS_BookReconUDE (Goo1.AuxVarGetRef "*_BSYS_rBook")
         endif

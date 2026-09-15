@@ -1,7 +1,9 @@
 ; ============================================================================
 ; BSYS_OnCellEnterUDE
 ; ============================================================================
-; Fires on entry and settles, so the safe is final before the player can reach it.
+; Fires on suite entry and settles, so the safe is current before the player
+; can reach it - not frozen: the sim keeps running on whatever's left until
+; Benny is dead or gone.
 ; ============================================================================
 
 Create: BSYS_OnCellEnterUDE

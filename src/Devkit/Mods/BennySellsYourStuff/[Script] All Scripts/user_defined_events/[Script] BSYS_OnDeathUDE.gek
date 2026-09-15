@@ -1,8 +1,14 @@
 ; ============================================================================
 ; BSYS_OnDeathUDE
 ; ============================================================================
-; xNVSE OnDeath, registered once per Benny ref in InitLoadUDF. Any Benny
-; death ends the spree, so just defer to EndCheckUDF.
+; xNVSE OnDeath, registered per Benny ref in InitLoadUDF - on ended saves
+; too. While the spree runs any Benny death ends it (EndCheckUDF). Either
+; way the body then gets whatever it is still owed HERE (ledger and caps,
+; or just the caps after a cross hand-over), by explicit ref: the
+; dispatch sits at the dying->dead transition, past the ~2s fall that
+; on-dying loot sweeps (Sweet Scarcity) run inside, and the spree may
+; have ended with Benny alive long before (he fled the Tops - issue
+; #7). No-op if EndCheck already served him.
 ; ============================================================================
 
 Create: BSYS_OnDeathUDE
@@ -11,5 +17,13 @@ ref rKilled
 ref rKiller
 
 Begin Function { rKilled, rKiller }
-  Call BSYS_EndCheckUDF
+  if Player.AuxVarGetFlt "_BSYS_iEnded" == 0
+    Call BSYS_EndCheckUDF
+  endif
+
+  ; Still 0 = the end was deferred (safe view open) - the deferred
+  ; settle serves him, or the next load's self-heal does
+  if Player.AuxVarGetFlt "_BSYS_iEnded"
+    Call BSYS_BookSpawnUDF rKilled
+  endif
 End

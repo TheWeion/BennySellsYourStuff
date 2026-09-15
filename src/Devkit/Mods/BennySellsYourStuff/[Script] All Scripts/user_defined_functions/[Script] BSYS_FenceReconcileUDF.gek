@@ -41,6 +41,7 @@ int bProtHit
 int iFloor
 int bDebug
 float fNow
+float fShift
 float fMigrate
 float fGone
 float fLCK
@@ -53,19 +54,31 @@ Begin Function {}
   let fNow := GetGameDaysPassed
 
   ; Self-heal a future-stranded throttle stamp (backward console clock
-  ; jump on an ENDED save - no SimUDF rebase runs there): shift the churn
-  ; stamps by the deficit and let this pass proceed
+  ; jump on an ENDED save - no SimUDF rebase runs there): shift every
+  ; absolute stamp by the deficit and let this pass proceed. Captured
+  ; first - fLastRecon is rewritten below
   if fNow < (Player.AuxVarGetFlt "_BSYS_fLastRecon")
+    let fShift := (Player.AuxVarGetFlt "_BSYS_fLastRecon") - fNow
     let iNum := Player.AuxVarSize "_BSYS_LedgerMoveDay"
     let iIdx := 0
 
     while iIdx < iNum
-      Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" ((Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iIdx) - ((Player.AuxVarGetFlt "_BSYS_fLastRecon") - fNow)) iIdx
+      Player.AuxVarSetFlt "_BSYS_LedgerMoveDay" ((Player.AuxVarGetFlt "_BSYS_LedgerMoveDay" iIdx) - fShift) iIdx
       ; Sale-day stamps must shift with the same deficit (mirrors the
       ; SimUDF rebase) or the fGoneDays horizon stretches by the jump
-      Player.AuxVarSetFlt "_BSYS_LedgerDay" ((Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx) - ((Player.AuxVarGetFlt "_BSYS_fLastRecon") - fNow)) iIdx
+      Player.AuxVarSetFlt "_BSYS_LedgerDay" ((Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx) - fShift) iIdx
       let iIdx += 1
     loop
+
+    ; The spree anchors are absolute too (SimUDF shifts fStartDay the same
+    ; way): the book's duration is fBookEnd - fStartDay, and BookSpawnUDF's
+    ; legacy fallback reads the rows just shifted. 0 = never stamped, and
+    ; that marker has to stay 0
+    Player.AuxVarSetFlt "_BSYS_fStartDay" ((Player.AuxVarGetFlt "_BSYS_fStartDay") - fShift)
+
+    if (Player.AuxVarGetFlt "_BSYS_fBookEnd") > 0
+      Player.AuxVarSetFlt "_BSYS_fBookEnd" ((Player.AuxVarGetFlt "_BSYS_fBookEnd") - fShift)
+    endif
 
     Player.AuxVarSetFlt "_BSYS_fLastRecon" (fNow - 1)
   endif

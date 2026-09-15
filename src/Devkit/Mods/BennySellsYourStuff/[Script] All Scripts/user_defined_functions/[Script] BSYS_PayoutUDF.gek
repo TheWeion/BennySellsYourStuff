@@ -1,0 +1,45 @@
+; ============================================================================
+; BSYS_PayoutUDF
+; ============================================================================
+; Lands the death payout BookSpawnUDF queued (_BSYS_iPayoutDue) on the dead
+; Benny ref. Runs on a GameMode-only CallAfterSeconds timer because caps
+; can't opt out of Sweet Scarcity's on-dying sweep (its -1 is per BASE
+; form, and Caps001 is everyone's): that sweep is a 0.1s timer on the same
+; clock, registered at the killing blow, and xNVSE holds this clock while
+; ANY menu is open (its menu check is the raw engine one, which Real Time
+; Menus never patches) - so under RTM the OnDeath serve can land inside a
+; live menu with the sweep still frozen, and a synchronous add would be
+; on the body when it drains. A later entry with a later deadline never
+; overtakes it. Timers flush on load: InitLoadUDF lands a leftover directly
+; (no sweep can be pending for a body that was already dead at load).
+; ============================================================================
+
+Create: BSYS_PayoutUDF
+
+ref rCorpse
+int iDue
+
+Begin Function {}
+  let iDue := Player.AuxVarGetFlt "_BSYS_iPayoutDue"
+
+  if iDue <= 0
+    return
+  endif
+
+  if BennyREF.GetDead
+    let rCorpse := BennyREF
+  elseif VFortBennyRef.GetDead
+    let rCorpse := VFortBennyRef
+  elseif VFortBennyCrucifiedRef.GetDead
+    let rCorpse := VFortBennyCrucifiedRef
+  else
+    return
+  endif
+
+  rCorpse.AddItemAlt Caps001 iDue
+  Player.AuxVarErase "_BSYS_iPayoutDue"
+
+  if Goo1.AuxVarGetFlt "*_BSYS" 1
+    Print "BSYS - Death payout: " + $iDue + " caps are on the body"
+  endif
+End

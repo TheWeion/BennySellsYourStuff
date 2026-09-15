@@ -4,10 +4,20 @@
 ; The central tick, called from both heartbeats, every event handler, and
 ; once per save load. (1) Detect the humbling: the first non-caps item in
 ; the safe starts the clock. (2) Check end conditions: any Benny ref dead,
-; VMQTops stage 20, VStoryEventBennyFled (Black Widow route), or Benny
-; physically in the suite (backstop). (3) Settle via SimUDF (incremental,
-; safe to call any time). (4) On an end: freeze (_BSYS_iEnded), notify,
-; print the debug ledger, erase all other BSYS AuxVars (CleanupUDF).
+; or VStoryEventBennyFled - vanilla sets it the moment he commits to
+; leaving (dialogue result, flee package, casino door, no-show timer),
+; which can be well before BennyREF is disabled; a kill after that resets
+; the global, but _BSYS_iEnded is the end of record and OnDeathUDE still
+; serves the body. Nothing else ends it: the suite meeting, stage 20 and
+; Benny waiting upstairs all still let the player talk him into walking.
+; (3) Settle via SimUDF (incremental,
+; safe to call any time). (4) On an end: freeze (_BSYS_iEnded), stamp the
+; end moment, notify, serve the corpse (BookSpawnUDF - only if the end IS
+; a death; otherwise OnDeathUDE does it when Benny finally dies, or
+; CrossUDE hands it over on the cross), print
+; the debug ledger, drop the settle scratch (CleanupUDF 0 - the totals,
+; fBookEnd, book state and ledger rows stay: BookSpawnUDF and the fencing
+; network still need them).
 ;
 ; Clock: JIP GetGameDaysPassed (calendar globals, immune to the vanilla
 ; GameDaysPassed freeze bug). It already INCLUDES GameHour/24 - adding it
@@ -18,9 +28,6 @@ Create: BSYS_EndCheckUDF
 
 ref rSafe
 ref rItem
-ref rBookOwner
-ref rCell
-ref rSuite
 array_var aItems
 array_var aIter
 float fNow
@@ -37,9 +44,6 @@ int iSpent
 int iRowQty
 int iRowVal
 int iValTotal
-int iPayTotal
-int iPayout
-float fPayPct
 
 Begin Function {}
   if Goo1.AuxVarGetFlt "*_BSYS_bActive" != 1
@@ -93,19 +97,20 @@ Begin Function {}
   ;        end arriving mid-view still gets timestamped) ---
   let bEnded := 0
 
-  ; Backstop comparison sides hoisted: a classic 'if' with a command call
-  ; on EACH side misevaluates (proven in-game on the intel Strength check)
-  let rCell := BennyREF.GetParentCell
-  let rSuite := Goo1.AuxVarGetRef "*_BSYS_rSuite"
-
   if BennyREF.GetDead || VFortBennyRef.GetDead || VFortBennyCrucifiedRef.GetDead
-    let bEnded := 1
-  elseif GetStage VMQTops >= 20
     let bEnded := 1
   elseif VStoryEventBennyFled == 1
     let bEnded := 1
-  elseif rSuite != 0 && rCell == rSuite
-    let bEnded := 1
+
+    ; Vanilla stamps the flight from a result script, and that same script
+    ; can jump the clock (Black Widow: GameHour + 8) - or the player can
+    ; Wait - before the next tick sees it. Pin the final settle to the
+    ; last settled moment through the freeze stamp, so Benny can't keep
+    ; fencing after he's gone. Deaths are caught live by OnDeath and
+    ; settle to now as before
+    if (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") == 0
+      Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" (Player.AuxVarGetFlt "_BSYS_fLastSimDay")
+    endif
   endif
 
   ; --- 3. Safe-in-view deferral ---
@@ -133,13 +138,17 @@ Begin Function {}
   if bEnded
     Player.AuxVarSetFlt "_BSYS_iEnded" 1
 
-    ; If the end arrived mid-view, the deferral timestamp is the true end
-    ; moment - clamp the local clock so reported durations don't count time
-    ; spent staring into the safe, then consume the timestamp
+    ; A freeze stamp (end mid-view, or a flight end) is the true end moment
+    ; - clamp the local clock so the duration counts neither time spent
+    ; staring into the safe nor time after Benny left, then consume it
     if (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") > 0 && (Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay") < fNow
       let fNow := Goo1.AuxVarGetFlt "*_BSYS_fFreezeDay"
     endif
     Goo1.AuxVarSetFlt "*_BSYS_fFreezeDay" 0
+
+    ; The end moment: the "time on the clock" the ledger reports whenever
+    ; it gets written - which can be long after now
+    Player.AuxVarSetFlt "_BSYS_fBookEnd" fNow
 
     let iSold := Player.AuxVarGetFlt "_BSYS_iItemsSold"
     let iSpent := Player.AuxVarGetFlt "_BSYS_iCapsSpent"
@@ -150,56 +159,12 @@ Begin Function {}
         MessageExAlt 5 ($sMsg)
       endif
 
-      ; --- Benny's ledger book: needs a corpse to sit on, and something
-      ; sold or spent worth writing down. Text is built and stored BEFORE
-      ; CleanupUDF erases the sale rows ---
-      if BennyREF.GetDead || VFortBennyRef.GetDead || VFortBennyCrucifiedRef.GetDead
-        if BennyREF.GetDead
-          let rBookOwner := BennyREF
-        elseif VFortBennyRef.GetDead
-          let rBookOwner := VFortBennyRef
-        else
-          let rBookOwner := VFortBennyCrucifiedRef
-        endif
-
-        ; The end moment is stored so buyback scribbles can rebuild the
-        ; book with the same duration total later
-        Player.AuxVarSetFlt "_BSYS_fBookEnd" fNow
-        Call BSYS_BookWriteUDF fNow
-        Player.AuxVarSetRef "_BSYS_rBookOwner" rBookOwner
-        Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
-        Call BSYS_BennyLedgerGenUDF
-
-        ; --- Death payout: a Luck-scaled cut of what Benny ACTUALLY got
-        ; for the goods (summed real proceeds, not base value) is still
-        ; on the body ---
-        let iPayTotal := 0
-        let iIdx := 0
-        let iNum := Player.AuxVarSize "_BSYS_LedgerCapsGot"
-
-        while iIdx < iNum
-          let iPayTotal += Player.AuxVarGetFlt "_BSYS_LedgerCapsGot" iIdx
-          let iIdx += 1
-        loop
-
-        if iPayTotal > 0
-          let fPayPct := (Goo1.AuxVarGetFlt "*_BSYS" 31) + ((Goo1.AuxVarGetFlt "*_BSYS" 32) * (Player.GetPermanentActorValue Luck))
-
-          if fPayPct > 100
-            let fPayPct := 100
-          endif
-
-          let iPayout := Floor (iPayTotal * fPayPct / 100)
-
-          if iPayout > 0
-            rBookOwner.AddItemAlt Caps001 iPayout
-
-            if bDebug
-              Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for are on the body"
-            endif
-          endif
-        endif
-      endif
+      ; --- Benny's ledger and the death payout need a corpse. Served now
+      ; only when the end IS a death and the body is already down - a
+      ; death caught mid-fall, and the flight end (Benny gone from the
+      ; Tops), are served by OnDeathUDE when he finally hits the floor
+      ; (issue #7) ---
+      Call BSYS_BookSpawnUDF 0
     endif
 
     ; --- Debug: Benny's fencing ledger ---
@@ -233,7 +198,8 @@ Begin Function {}
       Print "BSYS |=============================================================="
     endif
 
-    ; Drop every BSYS AuxVar except the iEnded sentinel
+    ; Drop the settle scratch only - the totals, fBookEnd and the rows
+    ; survive for BookSpawnUDF and the fencing network
     Call BSYS_CleanupUDF 0
   endif
 End
