@@ -1,0 +1,195 @@
+; ============================================================================
+; BSYS_BookSpawnUDF
+; ============================================================================
+; Puts Benny's ledger and the Luck-scaled death payout on his corpse - the
+; two things a spree end owes to a BODY rather than to the end itself.
+; The flight end (Benny gone from the Tops) freezes the spree with him
+; still alive, so this can't live inside EndCheckUDF: it runs from there
+; when the end IS a death, from OnDeathUDE when he dies after an end, at
+; load to serve a corpse that a pre-fix save left empty (issue #7).
+;
+; Idempotent: stored book text plus an owner or a taken flag on record is
+; the "ledger served" marker - the text is first written HERE, every
+; other BookWriteUDF caller gates on it, and only a live instance ever
+; writes the owner and taken flag - and the payout has its own
+; (_BSYS_iPayoutOwed 2 = settled, final). A spree with nothing
+; sold or spent writes nothing. rCorpse 0 = find the dead Benny ref, but
+; a body still mid-fall is left for OnDeathUDE: anything added during the
+; ~2s dying animation can be swept by on-dying loot passes (Sweet
+; Scarcity fires 0.1s after the blow, and the poll can land inside that
+; window), while the OnDeath dispatch is past it. The duration line uses
+; the end moment EndCheckUDF stamped (_BSYS_fBookEnd); a save that ended
+; before it was stamped falls back to its last sale on record.
+;
+; Returns 1 when this call settled something - the book written and/or
+; the payout marker closed (a cut that floors to 0 caps still counts).
+; No caller reads it today.
+; ============================================================================
+
+Create: BSYS_BookSpawnUDF
+
+ref rCorpse
+ref rOwner
+int bDebug
+int iTaken
+int bBookOwed
+int bPayOwed
+int iOwed
+int iSold
+int iSpent
+int iIdx
+int iNum
+int iLife
+int iPayTotal
+int iPayout
+float fPayPct
+float fEnd
+
+Begin Function { rCorpse }
+  SetFunctionValue 0
+
+  ; Text with no owner AND no taken flag on record = a build in between
+  ; wrote the text with no instance behind it (its rebuild gates trusted
+  ; fBookEnd alone) - the book is still owed, and the rewrite below
+  ; replaces that text. The owner alone is not the tell: JIP zeroes a
+  ; stored ref at load when the plugin that owns it left the load order
+  ; (ledger sold to a mod-added vendor, mod removed), while every path
+  ; that ever created the instance wrote bBookTaken with the owner
+  let bBookOwed := 0
+  let rOwner := Player.AuxVarGetRef "_BSYS_rBookOwner"
+  let iTaken := Player.AuxVarSize "_BSYS_bBookTaken"
+
+  if (Player.AuxVarSize "_BSYS_sBookDesc") <= 0
+    let bBookOwed := 1
+  elseif rOwner == 0 && iTaken <= 0
+    let bBookOwed := 1
+  endif
+
+  ; The caps follow the book onto the body (2 = settled and final; unset
+  ; on saves served before this marker existed, which were paid with the
+  ; book)
+  let iOwed := Player.AuxVarGetFlt "_BSYS_iPayoutOwed"
+  let bPayOwed := 0
+
+  if bBookOwed && iOwed != 2
+    let bPayOwed := 1
+  endif
+
+  if bBookOwed == 0 && bPayOwed == 0
+    return
+  endif
+
+  let iSold := Player.AuxVarGetFlt "_BSYS_iItemsSold"
+  let iSpent := Player.AuxVarGetFlt "_BSYS_iCapsSpent"
+
+  if iSold == 0 && iSpent == 0
+    return
+  endif
+
+  if rCorpse == 0
+    if BennyREF.GetDead
+      let rCorpse := BennyREF
+    elseif VFortBennyRef.GetDead
+      let rCorpse := VFortBennyRef
+    elseif VFortBennyCrucifiedRef.GetDead
+      let rCorpse := VFortBennyCrucifiedRef
+    else
+      return
+    endif
+
+    ; 1 = dying: OnDeathUDE serves him once he's down (JohnnyGuitar)
+    let iLife := rCorpse.GetLifeState
+
+    if iLife == 1
+      return
+    endif
+  endif
+
+  let bDebug := Goo1.AuxVarGetFlt "*_BSYS" 1
+
+  if bBookOwed
+    let fEnd := Player.AuxVarGetFlt "_BSYS_fBookEnd"
+
+    ; No stamp = a save that ended alive under the old rules (only death
+    ; ends stamped it). The last sale is the closest thing to the end on
+    ; record - the kill can come weeks later, and "now" would pad the clock
+    if fEnd == 0
+      let iNum := Player.AuxVarSize "_BSYS_LedgerDay"
+      let iIdx := 0
+
+      while iIdx < iNum
+        if (Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx) > fEnd
+          let fEnd := Player.AuxVarGetFlt "_BSYS_LedgerDay" iIdx
+        endif
+
+        let iIdx += 1
+      loop
+
+      ; Rows an older build's backward-jump self-heal shifted (it left
+      ; fStartDay alone) can sit before the start - floor them there
+      if fEnd > 0 && fEnd < (Player.AuxVarGetFlt "_BSYS_fStartDay")
+        let fEnd := Player.AuxVarGetFlt "_BSYS_fStartDay"
+      endif
+
+      if fEnd == 0
+        let fEnd := Player.AuxVarGetFlt "_BSYS_fStartDay"
+      endif
+
+      if fEnd == 0
+        let fEnd := GetGameDaysPassed
+      endif
+
+      Player.AuxVarSetFlt "_BSYS_fBookEnd" fEnd
+    endif
+
+    ; Text first, then the instance: BennyLedgerGenUDF dresses the new
+    ; book from the stored text and places it on the recorded owner
+    Call BSYS_BookWriteUDF fEnd
+    Player.AuxVarSetRef "_BSYS_rBookOwner" rCorpse
+    Player.AuxVarSetFlt "_BSYS_bBookTaken" 0
+    Call BSYS_BennyLedgerGenUDF
+
+    if bDebug
+      Print "BSYS - Benny's ledger is on the body: " + (LNGetName rCorpse)
+    endif
+  endif
+
+  ; --- Death payout: a Luck-scaled cut of what Benny ACTUALLY got for the
+  ; goods (summed real proceeds, not base value) is still on the body.
+  ; Queued, not added: caps can't opt out of Sweet Scarcity's on-dying
+  ; sweep the way the book does, so they ride the sweep's own clock
+  ; behind it (BSYS_PayoutUDF explains) ---
+  if bPayOwed
+    let iPayTotal := 0
+    let iIdx := 0
+    let iNum := Player.AuxVarSize "_BSYS_LedgerCapsGot"
+
+    while iIdx < iNum
+      let iPayTotal += Player.AuxVarGetFlt "_BSYS_LedgerCapsGot" iIdx
+      let iIdx += 1
+    loop
+
+    if iPayTotal > 0
+      let fPayPct := (Goo1.AuxVarGetFlt "*_BSYS" 31) + ((Goo1.AuxVarGetFlt "*_BSYS" 32) * (Player.GetPermanentActorValue Luck))
+
+      if fPayPct > 100
+        let fPayPct := 100
+      endif
+
+      let iPayout := Floor (iPayTotal * fPayPct / 100)
+
+      if iPayout > 0
+        Player.AuxVarSetFlt "_BSYS_iPayoutDue" iPayout
+        CallAfterSeconds 0.5 BSYS_PayoutUDF 0
+
+        if bDebug
+          Print "BSYS - Death payout: " + $iPayout + " of " + $iPayTotal + " caps Benny fenced for, queued for the body"
+        endif
+      endif
+    endif
+
+    Player.AuxVarSetFlt "_BSYS_iPayoutOwed" 2
+  endif
+
+  SetFunctionValue 1
+End

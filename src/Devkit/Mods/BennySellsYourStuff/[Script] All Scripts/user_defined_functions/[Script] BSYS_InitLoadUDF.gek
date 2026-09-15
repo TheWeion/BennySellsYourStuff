@@ -99,6 +99,22 @@ Begin Function {}
     SetOnMenuCloseEventHandler BSYS_BarterCloseUDE 1 1009
     SetOnMenuCloseEventHandler BSYS_PipCloseUDE 1 1002
 
+    ; A spree that ended with Benny alive (stage 20, suite backstop,
+    ; Black Widow flight) still owes his corpse the ledger and payout:
+    ; watch for the death, and serve a body already lying there (a save
+    ; that hit issue #7 before the fix)
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::BennyREF
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyRef
+    SetEventHandler "OnDeath" BSYS_OnDeathUDE "first"::VFortBennyCrucifiedRef
+
+    ; A payout still queued when the save was made (timers flush on load;
+    ; no sweep can be pending for a body that was already dead at load)
+    if (Player.AuxVarGetFlt "_BSYS_iPayoutDue") > 0
+      Call BSYS_PayoutUDF
+    endif
+
+    Call BSYS_BookSpawnUDF 0
+
     ; The book came back with a fresh form ID - rehang its wheel slot,
     ; then open the capture window for this load, and make sure a
     ; merchant-held book survived the Plugins+ restore

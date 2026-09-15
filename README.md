@@ -62,6 +62,10 @@ week-by-week escalation rates, the moment you wake up or arrive.
 3. Benny flees the Tops / ends up Caesar's captive (covers the Black Widow route)
 4. Backstop: Benny is physically waiting in the presidential suite
 
+The ledger and the death payout need a body. If the spree ends while Benny
+is still alive (2–4), they turn up on his corpse whenever you finally kill
+him — in the suite, at Caesar's tent, or on the cross.
+
 Everything settles *before* you can reach the safe. Entering the suite forces a
 final settlement — even if you break in early with a pickpocketed key — so you
 never watch items vanish.
@@ -84,7 +88,8 @@ Crimson Caravan, the 188, Novac, Primm, Goodsprings, the Mojave Outpost.
 Walk into the right shop and buy it back at the counter, priced live by the
 barter menu with your Barter skill and perks.
 
-**Benny's Ledger.** When he dies, his body carries a handwritten ledger:
+**Benny's Ledger.** When he dies — whether that death ends the spree or
+comes long after it — his body carries a handwritten ledger:
 every sale, dated and priced, with the buyer's name and location — plus a
 Luck-scaled cut of the caps he *actually* made fencing your gear
 (`fRecoverCapsPctBase` + `fRecoverCapsPctPerLuck`). Buy an item back and its
@@ -113,8 +118,9 @@ numbers. Bought intel is written onto the **last page of Benny's Ledger**,
 in the Courier's own hand — every tip in one place, separate from Benny's
 entries — and each line is a snapshot of what the fence told you: if the
 goods move again, you'll need fresh intel. (The ledger only exists once
-Benny's spree ends; intel bought before that is remembered and appears the
-moment the book is written.)
+Benny is dead; intel bought before that — during the spree, or after an end
+that left him alive — is remembered and appears the moment the book is
+written.)
 
 ## Requirements
 
@@ -162,8 +168,8 @@ language (`en.json`), then the `en.json` fallback. To translate, copy
 
 ## Troubleshooting
 
-**Installing or removing *any* Plugins+ kit mod (this one included) can break
-the other kit mods in your load order.** You'll see `Failed to resolve
+**Installing, removing or updating *any* Plugins+ kit mod (this one included)
+can break the kit mods in your load order, the updated one included.** You'll see `Failed to resolve
 variable` / `Failed to extract parameter` errors from kits that worked fine
 before, sometimes with another kit's forms in the decompiled error lines. It
 isn't a bug in any of the kits. xNVSE 6.4.4+ keeps a persistent compiled-script
@@ -173,8 +179,8 @@ kit-created forms their IDs by load position. Change the kit set and those IDs
 shift out from under the cached bytecode — which the cache can't detect, so the
 stale IDs still resolve, just to the wrong forms.
 
-**Fix: delete `script_data_cache.bin` from your game folder whenever you add
-or remove a kit mod.** It's safe — the file regenerates on the next launch.
+**Fix: delete `script_data_cache.bin` from your game folder whenever you add,
+remove or update a kit mod.** It's safe — the file regenerates on the next launch.
 Alternatively, set `bNoScriptRunnerCaching = 1` under `[Release]` in
 `Data\NVSE\nvse_config.ini` to disable the persistent cache entirely (not recommended for larger modlists).
 
@@ -190,6 +196,14 @@ Alternatively, set `bNoScriptRunnerCaching = 1` under `[Release]` in
   re-apply one refuses book-type items, so the assignment is lost each
   load no matter what. Put the ledger on the JAM wheel instead if you want
   it on a quick key.
+- **Sweet Scarcity**: the ledger is opted out of its loot sweeps (BSYS sets
+  Sweet Scarcity's own per-item exclusion on the book), and the book and
+  death payout are only placed on his body once he has actually hit the
+  floor, past the on-dying sweep. Gear Benny fenced into merchant stock is ordinary
+  container loot to Sweet Scarcity, so it can be thinned like anything else
+  on your first visit to that shop's cell. If something of yours ever
+  vanishes that way, `DummiRef.OpenTeammateContainer 1` in the console
+  opens Sweet Scarcity's lost-loot stash.
 - [Real Time Menus](https://www.nexusmods.com/newvegas/mods/94910) is fully
   supported. BSYS asks the game itself whether the open menu is paused (RTM
   hooks that query with its own live-menu logic), so Benny keeps working in
